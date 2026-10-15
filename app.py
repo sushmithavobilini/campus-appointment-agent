@@ -200,6 +200,12 @@ def student_page(u):
     with ai_tab:
         st.subheader("🤖 Campus AI Assistant")
         st.caption("Try: “need to meet placement sir tmrw aftnoon”")
+        if st.session_state.get("ai_debug_error"):
+            with st.expander("Gemini diagnostic (for troubleshooting)", expanded=True):
+                st.code(st.session_state["ai_debug_error"])
+                if st.button("Clear diagnostic", key="clear_ai_diagnostic"):
+                    st.session_state.pop("ai_debug_error", None)
+                    st.rerun()
         if "chat" not in st.session_state: st.session_state.chat = []
         for m in st.session_state.chat:
             with st.chat_message(m["role"]): st.write(m["content"])
@@ -271,8 +277,16 @@ def student_page(u):
                 else: answer = intent.get("clarifying_question") or "I can help with booking, viewing appointments, finding a department, cancellation or rescheduling. What do you need?"
                 st.session_state.chat.append({"role":"assistant","content":answer})
             except Exception as e:
+                # Persist a safe diagnostic across Streamlit's rerun so the error is visible.
+                try:
+                    secret_key = str(st.secrets.get("GEMINI_API_KEY", ""))
+                except Exception:
+                    secret_key = os.getenv("GEMINI_API_KEY", "")
+                detail = f"{type(e).__name__}: {str(e)[:600]}"
+                if secret_key:
+                    detail = detail.replace(secret_key, "[REDACTED_API_KEY]")
+                st.session_state["ai_debug_error"] = detail
                 st.session_state.chat.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again or use Book appointment."})
-                st.error(f"Gemini request failed: {type(e).__name__}. Check app logs, API key and quota.")
             st.rerun()
 
 def staff_page(u):
