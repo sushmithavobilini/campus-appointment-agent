@@ -1,6 +1,8 @@
-import os, sqlite3, hashlib, hmac, json
+import os, hashlib, hmac, json
 from datetime import datetime, date, timedelta
 from pathlib import Path
+import psycopg
+from psycopg.rows import dict_row
 import streamlit as st
 
 try:
@@ -9,7 +11,7 @@ except ImportError:
     genai = None
 
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
-DB_PATH = Path(os.getenv("CAMPUS_DB_PATH", str(Path(__file__).parent / "campus_demo.db")))
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 DEPARTMENTS = ["Faculty Members", "Academic Advisors", "Placement Office", "Accommodation Department",
                "Transportation Department", "IT Department", "Student Affairs", "Cultural Department", "Administration"]
 SLOTS = ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"]
@@ -27,42 +29,75 @@ def verify_pw(password, stored):
     except Exception:
         return False
 
+
 def db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Open a short-lived PostgreSQL connection using the private DATABASE_URL secret."""
+    url = ""
+    try:
+        url = st.secrets.get("DATABASE_URL", "")
+    except Exception:
+        url = os.getenv("DATABASE_URL", "")
+    if not url:
+        raise RuntimeError("DATABASE_URL is missing from Streamlit Secrets.")
+    return psycopg.connect(url, row_factory=dict_row, connect_timeout=10)
 
 def init_db():
-    with db() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS users(
-          id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, full_name TEXT,
-          srn TEXT, gender TEXT, course TEXT, study_year TEXT, department TEXT, designation TEXT,
-          room_no TEXT, block_name TEXT);
-        CREATE TABLE IF NOT EXISTS appointments(
-          id INTEGER PRIMARY KEY, student_id INTEGER, staff_id INTEGER, department TEXT,
-          appointment_date TEXT, appointment_time TEXT, reason TEXT, status TEXT DEFAULT 'Pending',
-          staff_notes TEXT DEFAULT '', queries_addressed TEXT DEFAULT '',
-          resolution_status TEXT DEFAULT 'Not recorded', follow_up TEXT DEFAULT '', created_at TEXT,
-          UNIQUE(staff_id, appointment_date, appointment_time));
-        """)
-        if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            users = [
-              ("student.demo",hash_pw("StudentDemo123!"),"student","Aarav Demo","DEMO-STU-001","Prefer not to say","BBA Business Analytics","Year 3",None,None,None,None),
-              ("staff.placement",hash_pw("StaffDemo123!"),"staff","Dr. Placement Demo",None,None,None,None,"Placement Office","Placement Officer","B-204","Block B"),
-              ("staff.advisor",hash_pw("StaffDemo123!"),"staff","Ms. Advisor Demo",None,None,None,None,"Academic Advisors","Academic Advisor","A-108","Block A"),
-              ("staff.it",hash_pw("StaffDemo123!"),"staff","Mr. IT Demo",None,None,None,None,"IT Department","IT Support Officer","IT-012","IT Block"),
-            ]
-            c.executemany("""INSERT INTO users(username,password_hash,role,full_name,srn,gender,course,study_year,department,designation,room_no,block_name)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", users)
+    schema = """
+    CREATE TABLE IF NOT EXISTS users(
+      id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+      role TEXT NOT NULL, full_name TEXT NOT NULL, srn TEXT, gender TEXT, course TEXT, study_year TEXT,
+      department TEXT, designation TEXT, room_no TEXT, block_name TEXT
+    );
+    CREATE TABLE IF NOT EXISTS appointments(
+      id BIGSERIAL PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES users(id),
+      staff_id BIGINT NOT NULL REFERENCES users(id),
+      department TEXT NOT NULL, appointment_date TEXT NOT NULL, appointment_time TEXT NOT NULL,
+      reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Pending',
+      staff_notes TEXT NOT NULL DEFAULT '', queries_addressed TEXT NOT NULL DEFAULT '',
+      resolution_status TEXT NOT NULL DEFAULT 'Not recorded', follow_up TEXT NOT NULL DEFAULT '',
+      created_at TEXT,
+      CONSTRAINT unique_staff_slot UNIQUE(staff_id, appointment_date, appointment_time)
+    );
+    """
+    with db() as conn:
+        with conn.cursor() as cur:
+            for statement in schema.split(";"):
+                if statement.strip():
+                    cur.execute(statement)
+            cur.execute("SELECT COUNT(*) AS n FROM users")
+            count = cur.fetchone()["n"]
+            if count == 0:
+                users = [
+                  ("student.demo",hash_pw("StudentDemo123!"),"student","Aarav Demo","DEMO-STU-001","Prefer not to say","BBA Business Analytics","Year 3",None,None,None,None),
+                  ("staff.placement",hash_pw("StaffDemo123!"),"staff","Dr. Placement Demo",None,None,None,None,"Placement Office","Placement Officer","B-204","Block B"),
+                  ("staff.advisor",hash_pw("StaffDemo123!"),"staff","Ms. Advisor Demo",None,None,None,None,"Academic Advisors","Academic Advisor","A-108","Block A"),
+                  ("staff.it",hash_pw("StaffDemo123!"),"staff","Mr. IT Demo",None,None,None,None,"IT Department","IT Support Officer","IT-012","IT Block"),
+                ]
+                cur.executemany("""INSERT INTO users
+                  (username,password_hash,role,full_name,srn,gender,course,study_year,department,designation,room_no,block_name)
+                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", users)
 
 def all_rows(sql, args=()):
-    with db() as c:
-        return c.execute(sql, args).fetchall()
+    # Keep existing application queries while translating SQLite placeholders to PostgreSQL.
+    sql = sql.replace("?", "%s")
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, args)
+            return cur.fetchall()
 
 def run(sql, args=()):
-    with db() as c:
-        cur = c.execute(sql, args); c.commit(); return cur.lastrowid
+    sql = sql.replace("?", "%s")
+    is_insert = sql.lstrip().upper().startswith("INSERT")
+    if is_insert and "RETURNING" not in sql.upper():
+        sql = sql.rstrip().rstrip(";") + " RETURNING id"
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, args)
+            if is_insert:
+                row = cur.fetchone()
+                return row["id"] if row else None
+            return cur.rowcount
 
 def user_by_name(username):
     rows = all_rows("SELECT * FROM users WHERE username=?", (username,))
@@ -181,7 +216,7 @@ def student_page(u):
                         run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
                           VALUES(?,?,?,?,?,?,?,?)""", (u["id"],s["id"],department,day.isoformat(),slot,reason.strip(),"Pending",datetime.now().isoformat()))
                         st.success("Appointment request saved as Pending."); st.rerun()
-                    except sqlite3.IntegrityError: st.error("That slot is already booked. Choose another.")
+                    except psycopg.errors.UniqueViolation: st.error("That slot is already booked. Choose another.")
     with appointments_tab:
         appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
           JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
@@ -224,7 +259,7 @@ def student_page(u):
                           VALUES(?,?,?,?,?,?,?,?)""", (u["id"],pending["staff_id"],pending["department"],pending["day"],pending["slot"],pending["reason"],"Pending",datetime.now().isoformat()))
                         st.session_state.chat.append({"role":"assistant","content":"Appointment request saved as Pending. The staff member still needs to confirm it."})
                         st.session_state.pop("ai_pending",None); st.rerun()
-                    except sqlite3.IntegrityError: st.error("That slot was just taken. No booking was made.")
+                    except psycopg.errors.UniqueViolation: st.error("That slot was just taken. No booking was made.")
                 if no.button("Don't book"):
                     st.session_state.pop("ai_pending",None); st.rerun()
         message = st.chat_input("Type naturally, short forms are okay...")
