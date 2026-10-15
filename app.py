@@ -151,7 +151,7 @@ date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morn
 reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
 If a detail is unclear, leave it empty and ask a concise question.
 Student message: {message}"""
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt,
+    response = client.models.generate_content(model="gemini-3.8-flash", contents=prompt,
         config={"response_mime_type":"application/json", "temperature":0.1})
     result = json.loads(response.text)
     if not isinstance(result, dict): raise ValueError("Unexpected AI response")
