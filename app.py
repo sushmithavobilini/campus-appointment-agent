@@ -354,6 +354,153 @@ def staff_page(u):
                           WHERE id=? AND staff_id=?""",(notes,queries,resolution,follow,a["id"],u["id"]))
                         st.success("Meeting record saved."); st.rerun()
 
+
+
+def floating_ai_widget(u):
+    """Floating student-facing AI chat panel; booking requests always require confirmation."""
+    st.markdown("""
+    <style>
+    div.st-key-floating_ai_toggle {
+        position: fixed; right: 22px; bottom: 18px; z-index: 100001;
+        width: 66px; background: transparent;
+    }
+    div.st-key-floating_ai_toggle button {
+        width: 58px; height: 58px; border-radius: 50%;
+        box-shadow: 0 4px 18px rgba(0,0,0,.25);
+        font-size: 25px; padding: 0;
+    }
+    div.st-key-floating_ai_panel {
+        position: fixed; right: 22px; bottom: 88px; z-index: 100000;
+        width: min(390px, calc(100vw - 36px)); max-height: 70vh;
+        overflow-y: auto; padding: 14px; border: 1px solid rgba(128,128,128,.45);
+        border-radius: 16px; background: var(--secondary-background-color);
+        box-shadow: 0 8px 28px rgba(0,0,0,.24);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if "floating_ai_open" not in st.session_state:
+        st.session_state.floating_ai_open = False
+    if "floating_ai_messages" not in st.session_state:
+        st.session_state.floating_ai_messages = [
+            {"role": "assistant", "content": "Hi! I can help you request a campus appointment. Try: “I need placement guidance tomorrow afternoon.”"}
+        ]
+    if "floating_ai_pending" not in st.session_state:
+        st.session_state.floating_ai_pending = None
+
+    with st.container(key="floating_ai_toggle"):
+        if st.button("🤖", key="floating_ai_toggle_button", help="Open Campus AI Assistant"):
+            st.session_state.floating_ai_open = not st.session_state.floating_ai_open
+            st.rerun()
+
+    if not st.session_state.floating_ai_open:
+        return
+
+    with st.container(key="floating_ai_panel", border=True):
+        top1, top2 = st.columns([4, 1])
+        top1.markdown("### 🤖 Campus Assistant")
+        if top2.button("✕", key="floating_ai_close", help="Close chat"):
+            st.session_state.floating_ai_open = False
+            st.rerun()
+
+        for msg in st.session_state.floating_ai_messages[-8:]:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        pending = st.session_state.floating_ai_pending
+        if pending:
+            st.markdown("**Review appointment request**")
+            st.write(f"**Department:** {pending['department']}")
+            st.write(f"**Staff:** {pending['staff_name']}")
+            st.write(f"**Date/time:** {pending['day']} at {pending['slot']}")
+            st.write(f"**Reason:** {pending['reason']}")
+            yes, no = st.columns(2)
+            if yes.button("Confirm", key="floating_ai_confirm", type="primary", use_container_width=True):
+                try:
+                    run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
+                        VALUES(?,?,?,?,?,?,?,?)""", (u["id"], pending["staff_id"], pending["department"],
+                        pending["day"], pending["slot"], pending["reason"], "Pending", datetime.now().isoformat()))
+                    st.session_state.floating_ai_messages.append({"role":"assistant","content":"Your appointment request was saved as Pending. Staff still needs to confirm it."})
+                    st.session_state.floating_ai_pending = None
+                    st.rerun()
+                except psycopg.errors.UniqueViolation:
+                    st.error("That slot was just taken. No booking was made. Please try another time.")
+            if no.button("Don't book", key="floating_ai_decline", use_container_width=True):
+                st.session_state.floating_ai_pending = None
+                st.session_state.floating_ai_messages.append({"role":"assistant","content":"No booking was made."})
+                st.rerun()
+
+        with st.form("floating_ai_message_form", clear_on_submit=True):
+            message = st.text_input("Message", placeholder="Ask to book an appointment…", label_visibility="collapsed")
+            sent = st.form_submit_button("Send", use_container_width=True)
+        if sent and message.strip():
+            st.session_state.floating_ai_messages.append({"role":"user","content":message.strip()})
+            try:
+                intent = gemini_parse(message.strip())
+                kind = (intent.get("intent") or "other").lower()
+                answer = intent.get("summary") or "I understood your request."
+                if kind == "book":
+                    dept = intent.get("department") or ""
+                    day_text = intent.get("date") or ""
+                    tm = intent.get("time") or ""
+                    pref = (intent.get("time_preference") or "").lower()
+                    reason = (intent.get("reason") or "").strip() or message.strip()
+                    hint = (intent.get("staff_name_hint") or "").lower()
+                    if dept not in DEPARTMENTS:
+                        answer = "Which department do you need? For example, Placement Office, IT Department or Academic Advisors."
+                    elif not day_text:
+                        answer = intent.get("clarifying_question") or "What date would you like to meet?"
+                    else:
+                        try:
+                            day = date.fromisoformat(day_text)
+                        except ValueError:
+                            day = None
+                        if not day or day < date.today():
+                            answer = "Please give me a valid future date. No booking was made."
+                        else:
+                            staff_list = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (dept,))
+                            if hint:
+                                matched = [staff for staff in staff_list if hint in staff["full_name"].lower() or hint in (staff["designation"] or "").lower()]
+                                if matched:
+                                    staff_list = matched
+                            options = []
+                            for staff in staff_list:
+                                available = free_slots(staff["id"], day.isoformat())
+                                if tm:
+                                    available = [slot for slot in available if slot == tm]
+                                elif "morning" in pref:
+                                    available = [slot for slot in available if slot < "12:00"]
+                                elif "afternoon" in pref:
+                                    available = [slot for slot in available if "12:00" <= slot < "17:00"]
+                                elif "evening" in pref:
+                                    available = [slot for slot in available if slot >= "17:00"]
+                                for slot in available:
+                                    options.append((staff, slot))
+                            if not options:
+                                answer = "I couldn't find a free demo slot matching that request. Try another date or time. No booking was made."
+                            else:
+                                staff, slot = options[0]
+                                st.session_state.floating_ai_pending = {
+                                    "staff_id": staff["id"], "staff_name": staff["full_name"],
+                                    "department": dept, "day": day.isoformat(), "slot": slot, "reason": reason
+                                }
+                                answer = "I found a possible slot. Review the details below and confirm if you want to submit the request."
+                elif kind == "view":
+                    answer = "Your appointments are shown in the My appointments section of your dashboard."
+                elif kind == "cancel":
+                    answer = "To avoid cancelling the wrong appointment, use the Cancel appointment button in My appointments."
+                elif kind == "reschedule":
+                    answer = "Please cancel the existing request in My appointments, then submit a new request for your preferred slot."
+                elif kind == "find_department":
+                    answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
+                else:
+                    answer = intent.get("clarifying_question") or "I can help with appointment requests and finding the right campus department. What do you need?"
+                st.session_state.floating_ai_messages.append({"role":"assistant","content":answer})
+            except Exception:
+                st.session_state.floating_ai_messages.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again or use the regular AI assistant tab."})
+            st.rerun()
+
+
 def main():
     init_db()
     if "uid" not in st.session_state:
@@ -380,7 +527,9 @@ def main():
         st.write("Contact: xxxx@gmail.com")
         st.write("Sushmitha Vobilini · 987xxxxx")
         st.write("Samshitha Srikanth · 765xxxxx")
-    elif u["role"] == "student": student_page(u)
+    elif u["role"] == "student":
+        student_page(u)
+        floating_ai_widget(u)
     else: staff_page(u)
 
 if __name__ == "__main__":
