@@ -1,321 +1,286 @@
-import os
-import sqlite3
-import hashlib
-import hmac
-from datetime import datetime, date, time, timedelta
+import os, sqlite3, hashlib, hmac, json
+from datetime import datetime, date, timedelta
 from pathlib import Path
-
 import streamlit as st
 
-APP_DIR = Path(__file__).parent
-DB_PATH = Path(os.getenv("CAMPUS_DB_PATH", str(APP_DIR / "campus_demo.db")))
+try:
+    from google import genai
+except ImportError:
+    genai = None
 
-st.set_page_config(
-    page_title="Campus Appointment Agent",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
+DB_PATH = Path(os.getenv("CAMPUS_DB_PATH", str(Path(__file__).parent / "campus_demo.db")))
+DEPARTMENTS = ["Faculty Members", "Academic Advisors", "Placement Office", "Accommodation Department",
+               "Transportation Department", "IT Department", "Student Affairs", "Cultural Department", "Administration"]
+SLOTS = ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"]
 
-DEPARTMENTS = [
-    "Faculty Members",
-    "Academic Advisors",
-    "Placement Office",
-    "Accommodation Department",
-    "Transportation Department",
-    "IT Department",
-    "Student Affairs",
-    "Cultural Department",
-    "Administration",
-]
-
-def hash_password(password: str, salt: bytes | None = None) -> str:
-    salt = salt or os.urandom(16)
+def hash_pw(password):
+    salt = os.urandom(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return salt.hex() + ":" + digest.hex()
 
-def verify_password(password: str, stored: str) -> bool:
+def verify_pw(password, stored):
     try:
-        salt_hex, digest_hex = stored.split(":", 1)
-        candidate = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), bytes.fromhex(salt_hex), 200_000
-        ).hex()
-        return hmac.compare_digest(candidate, digest_hex)
-    except (ValueError, TypeError):
+        salt, digest = stored.split(":", 1)
+        candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
+        return hmac.compare_digest(candidate, digest)
+    except Exception:
         return False
 
-def connect():
+def db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    with connect() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('student','staff')),
-            full_name TEXT NOT NULL,
-            srn TEXT,
-            gender TEXT,
-            course TEXT,
-            study_year TEXT,
-            department TEXT,
-            designation TEXT,
-            room_no TEXT,
-            block_name TEXT
-        );
-        CREATE TABLE IF NOT EXISTS appointments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER NOT NULL,
-            staff_id INTEGER NOT NULL,
-            department TEXT NOT NULL,
-            appointment_date TEXT NOT NULL,
-            appointment_time TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Pending',
-            staff_notes TEXT DEFAULT '',
-            queries_addressed TEXT DEFAULT '',
-            resolution_status TEXT DEFAULT 'Not recorded',
-            follow_up TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(student_id) REFERENCES users(id),
-            FOREIGN KEY(staff_id) REFERENCES users(id),
-            UNIQUE(staff_id, appointment_date, appointment_time)
-        );
+    with db() as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS users(
+          id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, full_name TEXT,
+          srn TEXT, gender TEXT, course TEXT, study_year TEXT, department TEXT, designation TEXT,
+          room_no TEXT, block_name TEXT);
+        CREATE TABLE IF NOT EXISTS appointments(
+          id INTEGER PRIMARY KEY, student_id INTEGER, staff_id INTEGER, department TEXT,
+          appointment_date TEXT, appointment_time TEXT, reason TEXT, status TEXT DEFAULT 'Pending',
+          staff_notes TEXT DEFAULT '', queries_addressed TEXT DEFAULT '',
+          resolution_status TEXT DEFAULT 'Not recorded', follow_up TEXT DEFAULT '', created_at TEXT,
+          UNIQUE(staff_id, appointment_date, appointment_time));
         """)
-
-        # Fictional demo accounts only. Replace before any real institutional use.
-        if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            demo_users = [
-                ("student.demo", hash_password("StudentDemo123!"), "student",
-                 "Aarav Demo", "DEMO-STU-001", "Prefer not to say",
-                 "BBA Business Analytics", "Year 3", None, None, None, None),
-                ("staff.placement", hash_password("StaffDemo123!"), "staff",
-                 "Dr. Placement Demo", None, None, None, None,
-                 "Placement Office", "Placement Officer", "B-204", "Block B"),
-                ("staff.advisor", hash_password("StaffDemo123!"), "staff",
-                 "Ms. Advisor Demo", None, None, None, None,
-                 "Academic Advisors", "Academic Advisor", "A-108", "Block A"),
-                ("staff.it", hash_password("StaffDemo123!"), "staff",
-                 "Mr. IT Demo", None, None, None, None,
-                 "IT Department", "IT Support Officer", "IT-012", "IT Block"),
+        if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            users = [
+              ("student.demo",hash_pw("StudentDemo123!"),"student","Aarav Demo","DEMO-STU-001","Prefer not to say","BBA Business Analytics","Year 3",None,None,None,None),
+              ("staff.placement",hash_pw("StaffDemo123!"),"staff","Dr. Placement Demo",None,None,None,None,"Placement Office","Placement Officer","B-204","Block B"),
+              ("staff.advisor",hash_pw("StaffDemo123!"),"staff","Ms. Advisor Demo",None,None,None,None,"Academic Advisors","Academic Advisor","A-108","Block A"),
+              ("staff.it",hash_pw("StaffDemo123!"),"staff","Mr. IT Demo",None,None,None,None,"IT Department","IT Support Officer","IT-012","IT Block"),
             ]
-            conn.executemany("""
-                INSERT INTO users
-                (username,password_hash,role,full_name,srn,gender,course,study_year,
-                 department,designation,room_no,block_name)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """, demo_users)
+            c.executemany("""INSERT INTO users(username,password_hash,role,full_name,srn,gender,course,study_year,department,designation,room_no,block_name)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", users)
 
-def query_all(sql, params=()):
-    with connect() as conn:
-        return conn.execute(sql, params).fetchall()
+def all_rows(sql, args=()):
+    with db() as c:
+        return c.execute(sql, args).fetchall()
 
-def execute(sql, params=()):
-    with connect() as conn:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid
+def run(sql, args=()):
+    with db() as c:
+        cur = c.execute(sql, args); c.commit(); return cur.lastrowid
 
-def get_user(username):
-    rows = query_all("SELECT * FROM users WHERE username = ?", (username,))
+def user_by_name(username):
+    rows = all_rows("SELECT * FROM users WHERE username=?", (username,))
     return rows[0] if rows else None
 
-def login():
-    st.title("Campus Appointment Agent")
+def get_user():
+    rows = all_rows("SELECT * FROM users WHERE id=?", (st.session_state.uid,))
+    return rows[0] if rows else None
+
+def login_page():
+    st.title("🏫 Campus Appointment Agent")
     st.caption("A student-services appointment prototype")
-    left, right = st.columns([1.1, 1])
-    with left:
+    a, b = st.columns([1.1, 1])
+    with a:
         st.subheader("Your campus, easier to navigate.")
-        st.write(
-            "Find the right department, book an appointment, and keep track of "
-            "follow-up actions through one simple portal."
-        )
-        st.info(
-            "Prototype notice: use fictional demo accounts only. This is not an "
-            "official PES University system."
-        )
-        st.markdown("**Departments supported in the prototype**")
-        st.write(" · ".join(DEPARTMENTS))
-    with right:
+        st.write("Find the right department, book appointments and track follow-up actions in one place.")
+        st.info("Prototype only. Not an official university system. Use fictional demo accounts.")
+        st.write("Departments: " + " · ".join(DEPARTMENTS))
+    with b:
         st.subheader("Sign in")
-        role = st.radio("I am signing in as", ["Student", "Staff"], horizontal=True)
+        role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         if st.button("Sign in", type="primary", use_container_width=True):
-            user = get_user(username.strip())
-            expected_role = role.lower()
-            if user and user["role"] == expected_role and verify_password(password, user["password_hash"]):
-                st.session_state.user_id = user["id"]
-                st.session_state.username = user["username"]
+            u = user_by_name(username.strip())
+            if u and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
+                st.session_state.uid = u["id"]
                 st.session_state.last_activity = datetime.now().timestamp()
                 st.rerun()
             else:
-                st.error("Login failed. Check the demo credentials and selected role.")
-        with st.expander("Demo accounts"):
-            st.markdown(
-                "- **Student:** `student.demo` / `StudentDemo123!`\n"
-                "- **Staff:** `staff.placement` / `StaffDemo123!`\n"
-                "- **Staff:** `staff.advisor` / `StaffDemo123!`\n"
-                "- **Staff:** `staff.it` / `StaffDemo123!`"
-            )
-            st.caption("These accounts are fictional and intended only for this prototype.")
+                st.error("Login failed. Check username, password and role.")
+        with st.expander("Fictional demo accounts"):
+            st.code("Student: student.demo / StudentDemo123!\nPlacement staff: staff.placement / StaffDemo123!\nAdvisor: staff.advisor / StaffDemo123!\nIT staff: staff.it / StaffDemo123!")
 
-def current_user():
-    rows = query_all("SELECT * FROM users WHERE id = ?", (st.session_state.user_id,))
-    return rows[0] if rows else None
-
-def profile_panel(user):
-    st.subheader("Profile")
-    st.write(f"**Name:** {user['full_name']}")
-    st.write(f"**Account type:** {user['role'].title()}")
-    if user["role"] == "student":
-        st.write(f"**SRN:** {user['srn'] or 'Not set'}")
-        st.write(f"**Gender:** {user['gender'] or 'Not set'}")
-        st.write(f"**Course:** {user['course'] or 'Not set'}")
-        st.write(f"**Year of study:** {user['study_year'] or 'Not set'}")
+def profile_page(u):
+    st.header("Profile")
+    if u["role"] == "student":
+        st.write(f"**Name:** {u['full_name']}  \n**SRN:** {u['srn']}  \n**Gender:** {u['gender']}  \n**Course:** {u['course']}  \n**Year:** {u['study_year']}")
+        with st.form("edit_student"):
+            name = st.text_input("Full name", u["full_name"])
+            gender = st.text_input("Gender", u["gender"] or "")
+            course = st.text_input("Course", u["course"] or "")
+            year = st.text_input("Year of study", u["study_year"] or "")
+            if st.form_submit_button("Save profile"):
+                run("UPDATE users SET full_name=?,gender=?,course=?,study_year=? WHERE id=?", (name,gender,course,year,u["id"]))
+                st.success("Profile updated."); st.rerun()
     else:
-        st.write(f"**Department:** {user['department'] or 'Not set'}")
-        st.write(f"**Designation:** {user['designation'] or 'Not set'}")
-        st.write(f"**Room:** {user['room_no'] or 'Not set'}")
-        st.write(f"**Block:** {user['block_name'] or 'Not set'}")
-    with st.expander("Edit profile"):
-        if user["role"] == "student":
-            name = st.text_input("Full name", user["full_name"])
-            gender = st.text_input("Gender", user["gender"] or "")
-            course = st.text_input("Course", user["course"] or "")
-            year = st.text_input("Year of study", user["study_year"] or "")
-            if st.button("Save profile"):
-                execute("UPDATE users SET full_name=?, gender=?, course=?, study_year=? WHERE id=?",
-                        (name, gender, course, year, user["id"]))
-                st.success("Profile updated.")
-                st.rerun()
-        else:
-            name = st.text_input("Full name", user["full_name"])
-            room = st.text_input("Room number", user["room_no"] or "")
-            block = st.text_input("Block", user["block_name"] or "")
-            if st.button("Save staff profile"):
-                execute("UPDATE users SET full_name=?, room_no=?, block_name=? WHERE id=?",
-                        (name, room, block, user["id"]))
-                st.success("Profile updated.")
-                st.rerun()
+        st.write(f"**Name:** {u['full_name']}  \n**Department:** {u['department']}  \n**Designation:** {u['designation']}  \n**Room:** {u['room_no']}  \n**Block:** {u['block_name']}")
+        with st.form("edit_staff"):
+            name = st.text_input("Full name", u["full_name"])
+            room = st.text_input("Room number", u["room_no"] or "")
+            block = st.text_input("Block", u["block_name"] or "")
+            if st.form_submit_button("Save profile"):
+                run("UPDATE users SET full_name=?,room_no=?,block_name=? WHERE id=?", (name,room,block,u["id"]))
+                st.success("Profile updated."); st.rerun()
     with st.expander("Change password"):
-        current = st.text_input("Current password", type="password", key="current_pw")
-        new = st.text_input("New password (minimum 10 characters)", type="password", key="new_pw")
-        confirm = st.text_input("Confirm new password", type="password", key="confirm_pw")
-        if st.button("Update password"):
-            fresh = get_user(user["username"])
-            if not verify_password(current, fresh["password_hash"]):
-                st.error("Current password is incorrect.")
-            elif len(new) < 10:
-                st.error("Use at least 10 characters.")
-            elif new != confirm:
-                st.error("The passwords do not match.")
+        current = st.text_input("Current password", type="password")
+        new = st.text_input("New password (10+ characters)", type="password")
+        confirm = st.text_input("Confirm new password", type="password")
+        if st.button("Change password"):
+            fresh = user_by_name(u["username"])
+            if not verify_pw(current, fresh["password_hash"]): st.error("Current password is incorrect.")
+            elif len(new) < 10: st.error("Password must be at least 10 characters.")
+            elif new != confirm: st.error("Passwords do not match.")
             else:
-                execute("UPDATE users SET password_hash=? WHERE id=?",
-                        (hash_password(new), user["id"]))
-                st.success("Password changed. Sign out and sign in with the new password.")
+                run("UPDATE users SET password_hash=? WHERE id=?", (hash_pw(new),u["id"]))
+                st.success("Password updated.")
 
-def student_dashboard(user):
-    st.title(f"Welcome, {user['full_name'].split()[0]} 👋")
+def free_slots(staff_id, day):
+    busy = {r["appointment_time"] for r in all_rows("""SELECT appointment_time FROM appointments
+      WHERE staff_id=? AND appointment_date=? AND status NOT IN ('Cancelled','Rejected')""", (staff_id,day))}
+    return [s for s in SLOTS if s not in busy]
+
+def gemini_parse(message):
+    if genai is None: raise RuntimeError("Gemini SDK not installed. Redeploy after updating requirements.txt.")
+    try: key = st.secrets["GEMINI_API_KEY"]
+    except Exception: key = os.getenv("GEMINI_API_KEY", "")
+    if not key: raise RuntimeError("GEMINI_API_KEY is missing from Streamlit Secrets.")
+    client = genai.Client(api_key=key)
+    prompt = f"""Today is {date.today().isoformat()}. Interpret this student message for a university appointment app.
+Understand informal short forms/typos such as tmrw=tomorrow, aftnoon=afternoon, appt=appointment,
+cncl=cancel, resched=reschedule, fac=faculty, hod=head of department, pls=please.
+Allowed departments: {DEPARTMENTS}.
+Return only JSON with keys intent (book/view/cancel/reschedule/find_department/other), department (exact allowed name or empty),
+date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morning/afternoon/evening/empty),
+reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
+If a detail is unclear, leave it empty and ask a concise question.
+Student message: {message}"""
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt,
+        config={"response_mime_type":"application/json", "temperature":0.1})
+    result = json.loads(response.text)
+    if not isinstance(result, dict): raise ValueError("Unexpected AI response")
+    return result
+
+def student_page(u):
+    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
     st.caption("Student dashboard")
-    upcoming = query_all("""
-        SELECT a.*, s.full_name AS staff_name, s.room_no, s.block_name
-        FROM appointments a JOIN users s ON s.id=a.staff_id
-        WHERE a.student_id=? AND a.status NOT IN ('Cancelled','Rejected')
-        ORDER BY a.appointment_date, a.appointment_time
-    """, (user["id"],))
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Appointments", len(upcoming))
-    c2.metric("Departments", len(DEPARTMENTS))
-    c3.metric("Account", "Student")
-    book_tab, appt_tab, ai_tab = st.tabs(["Book appointment", "My appointments", "AI assistant"])
-    with book_tab:
-        st.subheader("Book an appointment")
-        dept = st.selectbox("Department", DEPARTMENTS)
-        staff = query_all("SELECT * FROM users WHERE role='staff' AND department=?", (dept,))
+    booking_tab, appointments_tab, ai_tab = st.tabs(["Book appointment", "My appointments", "🤖 AI assistant"])
+    with booking_tab:
+        department = st.selectbox("Department", DEPARTMENTS)
+        staff = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (department,))
         if not staff:
-            st.info("No demo staff have been added to this department yet. The full build will include staff management for all departments.")
+            st.info("No demo staff have been added to this department yet.")
         else:
-            staff_map = {f"{x['full_name']} — {x['designation']}": x for x in staff}
-            staff_label = st.selectbox("Staff member", list(staff_map.keys()))
-            chosen = staff_map[staff_label]
-            st.caption(f"Office: {chosen['room_no'] or 'TBC'}, {chosen['block_name'] or 'TBC'}")
-            appt_date = st.date_input("Date", min_value=date.today(), value=date.today() + timedelta(days=1))
-            appt_time = st.selectbox("Time", ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"])
-            reason = st.text_area("Reason for appointment", placeholder="Briefly explain what you need help with")
+            staff_map = {f"{s['full_name']} — {s['designation']}":s for s in staff}
+            label = st.selectbox("Staff member", list(staff_map))
+            s = staff_map[label]
+            st.caption(f"Office: {s['room_no'] or 'TBC'}, {s['block_name'] or 'TBC'}")
+            day = st.date_input("Date", min_value=date.today(), value=date.today()+timedelta(days=1))
+            slot = st.selectbox("Time", SLOTS)
+            reason = st.text_area("Reason for appointment")
             if st.button("Request appointment", type="primary"):
-                if not reason.strip():
-                    st.error("Please enter a reason for the appointment.")
+                if not reason.strip(): st.error("Please enter a reason.")
                 else:
                     try:
-                        execute("""
-                            INSERT INTO appointments
-                            (student_id,staff_id,department,appointment_date,appointment_time,
-                             reason,status,created_at)
-                            VALUES (?,?,?,?,?,?,?,?)
-                        """, (user["id"], chosen["id"], dept, appt_date.isoformat(),
-                              appt_time, reason.strip(), "Pending", datetime.now().isoformat()))
-                        st.success("Appointment request saved. Check My appointments for its status.")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("That staff member already has an appointment at this time. Choose another slot.")
-    with appt_tab:
-        if not upcoming:
-            st.info("You don't have any appointments yet.")
-        for a in upcoming:
+                        run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
+                          VALUES(?,?,?,?,?,?,?,?)""", (u["id"],s["id"],department,day.isoformat(),slot,reason.strip(),"Pending",datetime.now().isoformat()))
+                        st.success("Appointment request saved as Pending."); st.rerun()
+                    except sqlite3.IntegrityError: st.error("That slot is already booked. Choose another.")
+    with appointments_tab:
+        appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
+          JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+        if not appts: st.info("No appointments yet.")
+        for a in appts:
             with st.container(border=True):
                 st.markdown(f"**{a['department']} — {a['staff_name']}**")
                 st.write(f"{a['appointment_date']} at {a['appointment_time']} · {a['status']}")
-                st.write(f"Office: {a['room_no'] or 'TBC'}, {a['block_name'] or 'TBC'}")
-                st.write(f"Reason: {a['reason']}")
-                if a["status"] in ("Pending", "Confirmed") and st.button("Cancel appointment", key=f"cancel_{a['id']}"):
-                    execute("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=?",
-                            (a["id"], user["id"]))
+                st.write(f"Office: {a['room_no']}, {a['block_name']}  \nReason: {a['reason']}")
+                if a["status"] in ("Pending","Confirmed") and st.button("Cancel appointment", key=f"cancel_{a['id']}"):
+                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=?", (a["id"],u["id"]))
                     st.rerun()
+                if a["resolution_status"] != "Not recorded":
+                    st.write(f"**Outcome:** {a['resolution_status']}")
+                    if a["follow_up"]: st.write(f"**Follow-up:** {a['follow_up']}")
     with ai_tab:
         st.subheader("🤖 Campus AI Assistant")
-        st.write("Type naturally. Gemini integration will be added in the next milestone.")
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-        for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-        prompt = st.chat_input("e.g. need to meet placement sir tmrw aftnoon")
-        if prompt:
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.write(prompt)
-            response = (
-                "I can help you with that. In this first milestone, please use the "
-                "Book appointment tab to submit a request. In the next milestone, "
-                "Gemini will interpret short forms, identify the department and help "
-                "you complete the booking conversationally."
-            )
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-            with st.chat_message("assistant"):
-                st.write(response)
+        st.caption("Try: “need to meet placement sir tmrw aftnoon”")
+        if "chat" not in st.session_state: st.session_state.chat = []
+        for m in st.session_state.chat:
+            with st.chat_message(m["role"]): st.write(m["content"])
+        pending = st.session_state.get("ai_pending")
+        if pending:
+            with st.container(border=True):
+                st.markdown("**Review before submitting**")
+                st.write(f"Department: {pending['department']}")
+                st.write(f"Staff: {pending['staff_name']}")
+                st.write(f"Date: {pending['day']} · Time: {pending['slot']}")
+                st.write(f"Reason: {pending['reason']}")
+                yes, no = st.columns(2)
+                if yes.button("Confirm booking", type="primary"):
+                    try:
+                        run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
+                          VALUES(?,?,?,?,?,?,?,?)""", (u["id"],pending["staff_id"],pending["department"],pending["day"],pending["slot"],pending["reason"],"Pending",datetime.now().isoformat()))
+                        st.session_state.chat.append({"role":"assistant","content":"Appointment request saved as Pending. The staff member still needs to confirm it."})
+                        st.session_state.pop("ai_pending",None); st.rerun()
+                    except sqlite3.IntegrityError: st.error("That slot was just taken. No booking was made.")
+                if no.button("Don't book"):
+                    st.session_state.pop("ai_pending",None); st.rerun()
+        message = st.chat_input("Type naturally, short forms are okay...")
+        if message:
+            st.session_state.chat.append({"role":"user","content":message})
+            try:
+                intent = gemini_parse(message)
+                kind = (intent.get("intent") or "other").lower()
+                answer = intent.get("summary") or "I understood your request."
+                if kind == "book":
+                    dept = intent.get("department") or ""
+                    day_text = intent.get("date") or ""
+                    tm = intent.get("time") or ""
+                    pref = (intent.get("time_preference") or "").lower()
+                    reason = (intent.get("reason") or "").strip() or message
+                    hint = (intent.get("staff_name_hint") or "").lower()
+                    if dept not in DEPARTMENTS:
+                        answer = "Which department do you need? For example, Placement Office, IT Department or Academic Advisors."
+                    elif not day_text:
+                        answer = intent.get("clarifying_question") or "What date would you like to meet?"
+                    else:
+                        try: day = date.fromisoformat(day_text)
+                        except ValueError: day = None
+                        if not day or day < date.today():
+                            answer = "I couldn't identify a valid future date. Please tell me the date you want."
+                        else:
+                            staff_list = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (dept,))
+                            if hint:
+                                matched = [s for s in staff_list if hint in s["full_name"].lower() or hint in (s["designation"] or "").lower()]
+                                if matched: staff_list = matched
+                            options = []
+                            for s in staff_list:
+                                avail = free_slots(s["id"],day.isoformat())
+                                if tm: avail = [x for x in avail if x == tm]
+                                elif "morning" in pref: avail = [x for x in avail if x < "12:00"]
+                                elif "afternoon" in pref: avail = [x for x in avail if "12:00" <= x < "17:00"]
+                                elif "evening" in pref: avail = [x for x in avail if x >= "17:00"]
+                                for slot in avail: options.append((s,slot))
+                            if not options:
+                                answer = "I couldn't find a matching free slot in the demo schedule. Try another date or time. No booking was made."
+                            else:
+                                s, slot = options[0]
+                                st.session_state.ai_pending = {"staff_id":s["id"],"staff_name":s["full_name"],"department":dept,
+                                    "day":day.isoformat(),"slot":slot,"reason":reason}
+                                answer = "I found a possible slot. Review it below and confirm before I submit the request."
+                elif kind == "view": answer = "Open My appointments to see your saved bookings and statuses."
+                elif kind == "cancel": answer = "Open My appointments and cancel the specific appointment there. No appointment has been cancelled by this message."
+                elif kind == "reschedule": answer = "Use My appointments for now. Conversational rescheduling will be added later."
+                elif kind == "find_department": answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
+                else: answer = intent.get("clarifying_question") or "I can help with booking, viewing appointments, finding a department, cancellation or rescheduling. What do you need?"
+                st.session_state.chat.append({"role":"assistant","content":answer})
+            except Exception as e:
+                st.session_state.chat.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again or use Book appointment."})
+                st.error(f"Gemini request failed: {type(e).__name__}. Check app logs, API key and quota.")
+            st.rerun()
 
-def staff_dashboard(user):
-    st.title(f"Welcome, {user['full_name'].split()[0]} 👋")
-    st.caption(f"{user['department']} · Staff dashboard")
-    rows = query_all("""
-        SELECT a.*, u.full_name AS student_name, u.srn, u.course, u.study_year
-        FROM appointments a JOIN users u ON u.id=a.student_id
-        WHERE a.staff_id=?
-        ORDER BY a.appointment_date, a.appointment_time
-    """, (user["id"],))
-    pending = sum(1 for r in rows if r["status"] == "Pending")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total requests", len(rows))
-    c2.metric("Pending", pending)
-    c3.metric("Office", user["room_no"] or "TBC")
-    st.subheader("Your appointments")
-    if not rows:
-        st.info("No appointments have been requested yet.")
+def staff_page(u):
+    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
+    st.caption(f"{u['department']} · Staff dashboard")
+    rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year FROM appointments a
+      JOIN users u ON u.id=a.student_id WHERE a.staff_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+    if not rows: st.info("No appointments have been requested yet.")
     for a in rows:
         with st.container(border=True):
             st.markdown(f"**{a['student_name']}** · {a['srn'] or 'No SRN'}")
@@ -323,79 +288,51 @@ def staff_dashboard(user):
             st.write(f"{a['course'] or ''} · {a['study_year'] or ''}")
             st.write(f"Reason: {a['reason']}")
             if a["status"] == "Pending":
-                x, y = st.columns(2)
-                if x.button("Confirm", key=f"confirm_{a['id']}"):
-                    execute("UPDATE appointments SET status='Confirmed' WHERE id=? AND staff_id=?",
-                            (a["id"], user["id"]))
-                    st.rerun()
-                if y.button("Reject", key=f"reject_{a['id']}"):
-                    execute("UPDATE appointments SET status='Rejected' WHERE id=? AND staff_id=?",
-                            (a["id"], user["id"]))
-                    st.rerun()
-            if a["status"] in ("Confirmed", "Completed"):
+                c1,c2 = st.columns(2)
+                if c1.button("Confirm",key=f"confirm_{a['id']}"):
+                    run("UPDATE appointments SET status='Confirmed' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
+                if c2.button("Reject",key=f"reject_{a['id']}"):
+                    run("UPDATE appointments SET status='Rejected' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
+            if a["status"] in ("Confirmed","Completed"):
                 with st.expander("Post-meeting record"):
-                    notes = st.text_area("Reason / meeting context", value=a["staff_notes"] or a["reason"], key=f"notes_{a['id']}")
-                    queries = st.text_area("Queries addressed", value=a["queries_addressed"] or "", key=f"queries_{a['id']}")
-                    resolution = st.selectbox(
-                        "Resolution status",
-                        ["Not recorded", "Resolved", "Pending", "Referred to another department"],
-                        index=["Not recorded", "Resolved", "Pending", "Referred to another department"].index(a["resolution_status"] or "Not recorded"),
-                        key=f"resolution_{a['id']}"
-                    )
-                    follow_up = st.text_area("Follow-up action", value=a["follow_up"] or "", key=f"followup_{a['id']}")
-                    if st.button("Save meeting record", key=f"save_notes_{a['id']}"):
-                        execute("""
-                            UPDATE appointments SET staff_notes=?, queries_addressed=?,
-                            resolution_status=?, follow_up=?, status='Completed'
-                            WHERE id=? AND staff_id=?
-                        """, (notes, queries, resolution, follow_up, a["id"], user["id"]))
-                        st.success("Meeting record saved.")
-                        st.rerun()
+                    notes = st.text_area("Meeting reason/context",value=a["staff_notes"] or a["reason"],key=f"notes_{a['id']}")
+                    queries = st.text_area("Queries addressed",value=a["queries_addressed"] or "",key=f"queries_{a['id']}")
+                    resolution = st.selectbox("Resolution",["Not recorded","Resolved","Pending","Referred to another department"],
+                        index=["Not recorded","Resolved","Pending","Referred to another department"].index(a["resolution_status"] or "Not recorded"),key=f"resolution_{a['id']}")
+                    follow = st.text_area("Follow-up action",value=a["follow_up"] or "",key=f"follow_{a['id']}")
+                    if st.button("Save meeting record",key=f"save_{a['id']}"):
+                        run("""UPDATE appointments SET staff_notes=?,queries_addressed=?,resolution_status=?,follow_up=?,status='Completed'
+                          WHERE id=? AND staff_id=?""",(notes,queries,resolution,follow,a["id"],u["id"]))
+                        st.success("Meeting record saved."); st.rerun()
 
 def main():
     init_db()
-    if "user_id" not in st.session_state:
-        login()
-        return
-    user = current_user()
-    if not user:
-        st.session_state.clear()
-        st.rerun()
-        return
-
-    # This is a basic prototype inactivity check. Production-grade idle expiry needs
-    # a verified browser-activity heartbeat and server-side session enforcement.
+    if "uid" not in st.session_state:
+        login_page(); return
+    u = get_user()
+    if not u:
+        st.session_state.clear(); st.rerun(); return
+    # Prototype-only inactivity check; production deployment needs server-side session expiry.
     now = datetime.now().timestamp()
-    last = st.session_state.get("last_activity", now)
-    if now - last > 300:
-        st.session_state.clear()
-        st.warning("You were signed out after five minutes of inactivity. Please sign in again.")
-        st.rerun()
-        return
+    if now - st.session_state.get("last_activity",now) > 300:
+        st.session_state.clear(); st.warning("Signed out after inactivity. Please log in again."); st.rerun(); return
     st.session_state.last_activity = now
-
     with st.sidebar:
         st.markdown("## 🏫 Campus Agent")
-        st.caption("Prototype portal")
-        st.write(f"Signed in as **{user['full_name']}**")
-        page = st.radio("Navigation", ["Dashboard", "Profile", "About"])
+        page = st.radio("Navigation",["Dashboard","Profile","About"])
         st.divider()
-        if st.button("Sign out", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
-
-    if page == "Profile":
-        profile_panel(user)
+        if st.button("Sign out",use_container_width=True):
+            st.session_state.clear(); st.rerun()
+    if page == "Profile": profile_page(u)
     elif page == "About":
         st.title("About Campus Appointment Agent")
-        st.write("A prototype for helping students find departments, book staff appointments and track follow-up actions.")
-        st.warning("Not an official university service. Use fictional demo data only.")
+        st.write("A prototype for campus appointment booking and student-support follow-up.")
+        st.warning("Not an official university system. Use fictional data only.")
         st.write("Contact: xxxx@gmail.com")
-        st.write("Project contacts: Sushmitha Vobilini · 987xxxxx | Samshitha Srikanth · 765xxxxx")
-    elif user["role"] == "student":
-        student_dashboard(user)
-    else:
-        staff_dashboard(user)
+        st.write("Sushmitha Vobilini · 987xxxxx")
+        st.write("Samshitha Srikanth · 765xxxxx")
+    elif u["role"] == "student": student_page(u)
+    else: staff_page(u)
 
 if __name__ == "__main__":
     main()
