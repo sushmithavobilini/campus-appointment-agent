@@ -1,4 +1,4 @@
-import os, hashlib, hmac, json, time
+import os, hashlib, hmac, json
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import psycopg
@@ -46,7 +46,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users(
       id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
       role TEXT NOT NULL, full_name TEXT NOT NULL, srn TEXT, gender TEXT, course TEXT, study_year TEXT,
-      department TEXT, designation TEXT, room_no TEXT, block_name TEXT
+      department TEXT, designation TEXT, room_no TEXT, block_name TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE
     );
     CREATE TABLE IF NOT EXISTS appointments(
       id BIGSERIAL PRIMARY KEY,
@@ -65,6 +66,8 @@ def init_db():
             for statement in schema.split(";"):
                 if statement.strip():
                     cur.execute(statement)
+            # Safe schema migration for existing PostgreSQL deployments.
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
             cur.execute("SELECT COUNT(*) AS n FROM users")
             count = cur.fetchone()["n"]
             if count == 0:
@@ -117,20 +120,56 @@ def login_page():
         st.info("Prototype only. Not an official university system. Use fictional demo accounts.")
         st.write("Departments: " + " · ".join(DEPARTMENTS))
     with b:
-        st.subheader("Sign in")
-        role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        if st.button("Sign in", type="primary", use_container_width=True):
-            u = user_by_name(username.strip())
-            if u and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
-                st.session_state.uid = u["id"]
-                st.session_state.last_activity = datetime.now().timestamp()
-                st.rerun()
-            else:
-                st.error("Login failed. Check username, password and role.")
-        with st.expander("Fictional demo accounts"):
-            st.code("Student: student.demo / StudentDemo123!\nPlacement staff: staff.placement / StaffDemo123!\nAdvisor: staff.advisor / StaffDemo123!\nIT staff: staff.it / StaffDemo123!")
+        sign_in_tab, register_tab = st.tabs(["Sign in", "Register student account"])
+        with sign_in_tab:
+            st.subheader("Sign in")
+            role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+            if st.button("Sign in", type="primary", use_container_width=True):
+                u = user_by_name(username.strip())
+                if u and u.get("is_active", True) and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
+                    st.session_state.uid = u["id"]
+                    st.session_state.last_activity = datetime.now().timestamp()
+                    st.rerun()
+                else:
+                    st.error("Login failed. Check your username, password and account status.")
+            with st.expander("Fictional demo accounts"):
+                st.code("Student: student.demo / StudentDemo123!\\nPlacement staff: staff.placement / StaffDemo123!\\nAdvisor: staff.advisor / StaffDemo123!\\nIT staff: staff.it / StaffDemo123!")
+        with register_tab:
+            st.subheader("Create a student account")
+            st.caption("Staff accounts are created by an authorised administrator; public staff registration is disabled.")
+            with st.form("student_registration_form"):
+                reg_name = st.text_input("Full name")
+                reg_srn = st.text_input("SRN")
+                reg_gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
+                reg_course = st.text_input("Course", placeholder="e.g. BBA Business Analytics")
+                reg_year = st.selectbox("Year of study", ["Year 1", "Year 2", "Year 3", "Year 4"])
+                reg_username = st.text_input("Choose username")
+                reg_password = st.text_input("Create password (10+ characters)", type="password")
+                reg_confirm = st.text_input("Confirm password", type="password")
+                reg_submit = st.form_submit_button("Create account", type="primary", use_container_width=True)
+            if reg_submit:
+                if not all([reg_name.strip(), reg_srn.strip(), reg_course.strip(), reg_username.strip(), reg_password]):
+                    st.error("Please fill in all required fields.")
+                elif len(reg_password) < 10:
+                    st.error("Use a password with at least 10 characters.")
+                elif reg_password != reg_confirm:
+                    st.error("Passwords do not match.")
+                elif user_by_name(reg_username.strip()):
+                    st.error("That username is already taken. Choose another.")
+                elif all_rows("SELECT id FROM users WHERE srn=? AND role='student' AND is_active=TRUE", (reg_srn.strip(),)):
+                    st.error("An active student account already uses that SRN.")
+                else:
+                    try:
+                        run("""INSERT INTO users
+                            (username,password_hash,role,full_name,srn,gender,course,study_year,is_active)
+                            VALUES(?,?,?,?,?,?,?,?,TRUE)""",
+                            (reg_username.strip(), hash_pw(reg_password), "student", reg_name.strip(),
+                             reg_srn.strip(), reg_gender, reg_course.strip(), reg_year))
+                        st.success("Account created. You can now sign in using your new username and password.")
+                    except psycopg.errors.UniqueViolation:
+                        st.error("That username is already registered. Please choose another.")
 
 def profile_page(u):
     st.header("Profile")
@@ -166,6 +205,33 @@ def profile_page(u):
                 run("UPDATE users SET password_hash=? WHERE id=?", (hash_pw(new),u["id"]))
                 st.success("Password updated.")
 
+    st.divider()
+    with st.expander("Delete account", expanded=False):
+        st.warning("Deleting your account disables sign-in and removes identifying profile details. Appointment history is retained in anonymised form to preserve staff-side records.")
+        st.caption("Enter your current password and type DELETE to confirm.")
+        delete_password = st.text_input("Current password", type="password", key="delete_account_password")
+        delete_confirm = st.text_input("Type DELETE to confirm", key="delete_account_confirm")
+        if st.button("Delete my account", type="primary", key="delete_my_account"):
+            fresh = user_by_name(u["username"])
+            if u["role"] != "student":
+                st.error("Staff accounts cannot self-delete in this prototype. Ask an authorised administrator.")
+            elif not fresh or not verify_pw(delete_password, fresh["password_hash"]):
+                st.error("Current password is incorrect.")
+            elif delete_confirm.strip() != "DELETE":
+                st.error("Type DELETE exactly to confirm.")
+            else:
+                run("""UPDATE appointments
+                       SET reason='Account deleted', staff_notes='', queries_addressed='',
+                           follow_up='', resolution_status='Not recorded'
+                       WHERE student_id=?""", (u["id"],))
+                run("""UPDATE users SET is_active=FALSE, username=?, password_hash=?,
+                       full_name='Deleted Student', srn=NULL, gender=NULL, course=NULL,
+                       study_year=NULL WHERE id=?""",
+                    (f"deleted_student_{u['id']}", hash_pw(os.urandom(32).hex()), u["id"]))
+                st.session_state.clear()
+                st.success("Your account has been deleted. You have been signed out.")
+                st.rerun()
+
 def free_slots(staff_id, day):
     busy = {r["appointment_time"] for r in all_rows("""SELECT appointment_time FROM appointments
       WHERE staff_id=? AND appointment_date=? AND status NOT IN ('Cancelled','Rejected')""", (staff_id,day))}
@@ -182,134 +248,15 @@ Understand informal short forms/typos such as tmrw=tomorrow, aftnoon=afternoon, 
 cncl=cancel, resched=reschedule, fac=faculty, hod=head of department, pls=please.
 Allowed departments: {DEPARTMENTS}.
 Return only JSON with keys intent (book/view/cancel/reschedule/find_department/other), department (exact allowed name or empty),
-date (YYYY-MM-DD or empty; for reschedule this is the NEW date), time (HH:MM 24-hour or empty; for reschedule this is the NEW time), time_preference (morning/afternoon/evening/empty),
-target_date (YYYY-MM-DD or empty; the date of the EXISTING appointment to cancel/reschedule), target_time (HH:MM or empty; time of the EXISTING appointment),
-reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. For cancellation/rescheduling, use target_date/target_time only for the existing appointment and date/time only for the new appointment. Do not invent availability or claim a booking was made.
+date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morning/afternoon/evening/empty),
+reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
 If a detail is unclear, leave it empty and ask a concise question.
 Student message: {message}"""
-    # Retry transient capacity/service errors, then try a supported lightweight fallback.
-    # Keep the same prompt and JSON output contract for both models.
-    models = ["gemini-3.8-flash", "gemini-3.1-flash-lite"]
-    last_error = None
-    response = None
-    for model_name in models:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config={"response_mime_type": "application/json", "temperature": 0.1},
-                )
-                last_error = None
-                break
-            except Exception as exc:
-                last_error = exc
-                error_text = str(exc).lower()
-                transient = any(token in error_text for token in (
-                    "503", "unavailable", "429", "resource_exhausted",
-                    "internal", "deadline", "temporarily"
-                ))
-                if transient and attempt == 0:
-                    time.sleep(1.5)
-                    continue
-                break
-        if response is not None:
-            break
-    if response is None:
-        raise RuntimeError(
-            "Gemini is temporarily unavailable or rate-limited. Please wait a minute and try again. "
-            f"Technical detail: {type(last_error).__name__ if last_error else 'UnknownError'}"
-        ) from last_error
+    response = client.models.generate_content(model="gemini-3.8-flash", contents=prompt,
+        config={"response_mime_type":"application/json", "temperature":0.1})
     result = json.loads(response.text)
     if not isinstance(result, dict): raise ValueError("Unexpected AI response")
     return result
-
-
-def stage_appointment_change(u, intent, action):
-    """Stage a cancellation/reschedule; never mutate an appointment before explicit confirmation."""
-    target_date = (intent.get("target_date") or "").strip()
-    target_time = (intent.get("target_time") or "").strip()
-    rows = all_rows("""SELECT a.*, s.full_name AS staff_name FROM appointments a
-        JOIN users s ON s.id=a.staff_id
-        WHERE a.student_id=? AND a.status IN ('Pending','Confirmed') AND a.appointment_date>=?
-        ORDER BY a.appointment_date,a.appointment_time""", (u["id"], date.today().isoformat()))
-    if target_date:
-        rows = [r for r in rows if r["appointment_date"] == target_date]
-    if target_time:
-        rows = [r for r in rows if r["appointment_time"] == target_time]
-    if not target_date and len(rows) > 1:
-        return None, "You have multiple upcoming appointments. Please include the existing appointment date (and time if needed) so I change the right one."
-    if not rows:
-        return None, "I couldn't identify a matching upcoming appointment. Please include its existing date and time. No changes were made."
-    appt = rows[0]
-    pending = {"action": action, "appointment_id": appt["id"], "department": appt["department"],
-               "staff_name": appt["staff_name"], "old_day": appt["appointment_date"],
-               "old_slot": appt["appointment_time"]}
-    if action == "reschedule":
-        new_day_text = (intent.get("date") or "").strip()
-        new_time = (intent.get("time") or "").strip()
-        preference = (intent.get("time_preference") or "").lower()
-        try:
-            new_day = date.fromisoformat(new_day_text)
-        except ValueError:
-            new_day = None
-        if not new_day or new_day < date.today():
-            return None, "What future date would you like to move it to? No changes were made."
-        if new_time and new_time not in SLOTS:
-            return None, "That time isn't in the demo schedule. Choose one of the available demo slots. No changes were made."
-        available = free_slots(appt["staff_id"], new_day.isoformat())
-        # The appointment's current slot is considered busy, so only remove it from the busy list when staying on its current date.
-        if new_day.isoformat() == appt["appointment_date"]:
-            available.append(appt["appointment_time"])
-        available = sorted(set(available))
-        if new_time:
-            available = [slot for slot in available if slot == new_time]
-        elif "morning" in preference:
-            available = [slot for slot in available if slot < "12:00"]
-        elif "afternoon" in preference:
-            available = [slot for slot in available if "12:00" <= slot < "17:00"]
-        elif "evening" in preference:
-            available = [slot for slot in available if slot >= "17:00"]
-        available = [slot for slot in available if not (new_day.isoformat() == appt["appointment_date"] and slot == appt["appointment_time"])]
-        if not available:
-            return None, "I couldn't find a free slot for that new date/time. Try another slot. No changes were made."
-        pending["new_day"] = new_day.isoformat()
-        pending["new_slot"] = available[0]
-    return pending, "Review the change below. Nothing will be changed until you confirm."
-
-
-def render_change_confirmation(state_key, u, button_prefix):
-    pending = st.session_state.get(state_key)
-    if not pending:
-        return
-    with st.container(border=True):
-        st.markdown("**Confirm appointment change**")
-        st.write(f"**Action:** {'Cancel' if pending['action'] == 'cancel' else 'Reschedule'}")
-        st.write(f"**Appointment:** {pending['department']} — {pending['staff_name']}")
-        st.write(f"**Current slot:** {pending['old_day']} at {pending['old_slot']}")
-        if pending['action'] == 'reschedule':
-            st.write(f"**New slot:** {pending['new_day']} at {pending['new_slot']}")
-        yes, no = st.columns(2)
-        if yes.button("Confirm change", key=f"{button_prefix}_change_yes", type="primary"):
-            try:
-                if pending["action"] == "cancel":
-                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')", (pending["appointment_id"], u["id"]))
-                    result_message = "Your appointment has been cancelled."
-                else:
-                    run("UPDATE appointments SET appointment_date=?,appointment_time=? WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')",
-                        (pending["new_day"], pending["new_slot"], pending["appointment_id"], u["id"]))
-                    result_message = "Your appointment has been rescheduled."
-                # Share the result with both chat interfaces so it remains visible after switching tabs.
-                st.session_state.setdefault("chat", []).append({"role":"assistant", "content":result_message})
-                st.session_state.setdefault("floating_ai_messages", []).append({"role":"assistant", "content":result_message})
-                st.session_state.pop(state_key, None)
-                st.rerun()
-            except psycopg.errors.UniqueViolation:
-                st.error("That slot was just taken. No change was made; please choose another time.")
-        if no.button("Keep appointment unchanged", key=f"{button_prefix}_change_no"):
-            st.session_state.pop(state_key, None)
-            st.rerun()
-
 
 def student_page(u):
     st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
@@ -381,7 +328,6 @@ def student_page(u):
                     except psycopg.errors.UniqueViolation: st.error("That slot was just taken. No booking was made.")
                 if no.button("Don't book"):
                     st.session_state.pop("ai_pending",None); st.rerun()
-        render_change_confirmation("ai_pending_change", u, "regular_ai")
         message = st.chat_input("Type naturally, short forms are okay...")
         if message:
             st.session_state.chat.append({"role":"user","content":message})
@@ -426,10 +372,8 @@ def student_page(u):
                                     "day":day.isoformat(),"slot":slot,"reason":reason}
                                 answer = "I found a possible slot. Review it below and confirm before I submit the request."
                 elif kind == "view": answer = "Open My appointments to see your saved bookings and statuses."
-                elif kind in ("cancel", "reschedule"):
-                    pending_change, answer = stage_appointment_change(u, intent, kind)
-                    if pending_change:
-                        st.session_state.ai_pending_change = pending_change
+                elif kind == "cancel": answer = "Open My appointments and cancel the specific appointment there. No appointment has been cancelled by this message."
+                elif kind == "reschedule": answer = "Use My appointments for now. Conversational rescheduling will be added later."
                 elif kind == "find_department": answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
                 else: answer = intent.get("clarifying_question") or "I can help with booking, viewing appointments, finding a department, cancellation or rescheduling. What do you need?"
                 st.session_state.chat.append({"role":"assistant","content":answer})
@@ -552,8 +496,6 @@ def floating_ai_widget(u):
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":"No booking was made."})
                 st.rerun()
 
-        render_change_confirmation("ai_pending_change", u, "floating_ai")
-
         with st.form("floating_ai_message_form", clear_on_submit=True):
             message = st.text_input("Message", placeholder="Ask to book an appointment…", label_visibility="collapsed")
             sent = st.form_submit_button("Send", use_container_width=True)
@@ -611,10 +553,10 @@ def floating_ai_widget(u):
                                 answer = "I found a possible slot. Review the details below and confirm if you want to submit the request."
                 elif kind == "view":
                     answer = "Your appointments are shown in the My appointments section of your dashboard."
-                elif kind in ("cancel", "reschedule"):
-                    pending_change, answer = stage_appointment_change(u, intent, kind)
-                    if pending_change:
-                        st.session_state.ai_pending_change = pending_change
+                elif kind == "cancel":
+                    answer = "To avoid cancelling the wrong appointment, use the Cancel appointment button in My appointments."
+                elif kind == "reschedule":
+                    answer = "Please cancel the existing request in My appointments, then submit a new request for your preferred slot."
                 elif kind == "find_department":
                     answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
                 else:
