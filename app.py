@@ -182,8 +182,9 @@ Understand informal short forms/typos such as tmrw=tomorrow, aftnoon=afternoon, 
 cncl=cancel, resched=reschedule, fac=faculty, hod=head of department, pls=please.
 Allowed departments: {DEPARTMENTS}.
 Return only JSON with keys intent (book/view/cancel/reschedule/find_department/other), department (exact allowed name or empty),
-date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morning/afternoon/evening/empty),
-reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
+date (YYYY-MM-DD or empty; for reschedule this is the NEW date), time (HH:MM 24-hour or empty; for reschedule this is the NEW time), time_preference (morning/afternoon/evening/empty),
+target_date (YYYY-MM-DD or empty; the date of the EXISTING appointment to cancel/reschedule), target_time (HH:MM or empty; time of the EXISTING appointment),
+reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. For cancellation/rescheduling, use target_date/target_time only for the existing appointment and date/time only for the new appointment. Do not invent availability or claim a booking was made.
 If a detail is unclear, leave it empty and ask a concise question.
 Student message: {message}"""
     # Retry transient capacity/service errors, then try a supported lightweight fallback.
@@ -222,6 +223,93 @@ Student message: {message}"""
     result = json.loads(response.text)
     if not isinstance(result, dict): raise ValueError("Unexpected AI response")
     return result
+
+
+def stage_appointment_change(u, intent, action):
+    """Stage a cancellation/reschedule; never mutate an appointment before explicit confirmation."""
+    target_date = (intent.get("target_date") or "").strip()
+    target_time = (intent.get("target_time") or "").strip()
+    rows = all_rows("""SELECT a.*, s.full_name AS staff_name FROM appointments a
+        JOIN users s ON s.id=a.staff_id
+        WHERE a.student_id=? AND a.status IN ('Pending','Confirmed') AND a.appointment_date>=?
+        ORDER BY a.appointment_date,a.appointment_time""", (u["id"], date.today().isoformat()))
+    if target_date:
+        rows = [r for r in rows if r["appointment_date"] == target_date]
+    if target_time:
+        rows = [r for r in rows if r["appointment_time"] == target_time]
+    if not target_date and len(rows) > 1:
+        return None, "You have multiple upcoming appointments. Please include the existing appointment date (and time if needed) so I change the right one."
+    if not rows:
+        return None, "I couldn't identify a matching upcoming appointment. Please include its existing date and time. No changes were made."
+    appt = rows[0]
+    pending = {"action": action, "appointment_id": appt["id"], "department": appt["department"],
+               "staff_name": appt["staff_name"], "old_day": appt["appointment_date"],
+               "old_slot": appt["appointment_time"]}
+    if action == "reschedule":
+        new_day_text = (intent.get("date") or "").strip()
+        new_time = (intent.get("time") or "").strip()
+        preference = (intent.get("time_preference") or "").lower()
+        try:
+            new_day = date.fromisoformat(new_day_text)
+        except ValueError:
+            new_day = None
+        if not new_day or new_day < date.today():
+            return None, "What future date would you like to move it to? No changes were made."
+        if new_time and new_time not in SLOTS:
+            return None, "That time isn't in the demo schedule. Choose one of the available demo slots. No changes were made."
+        available = free_slots(appt["staff_id"], new_day.isoformat())
+        # The appointment's current slot is considered busy, so only remove it from the busy list when staying on its current date.
+        if new_day.isoformat() == appt["appointment_date"]:
+            available.append(appt["appointment_time"])
+        available = sorted(set(available))
+        if new_time:
+            available = [slot for slot in available if slot == new_time]
+        elif "morning" in preference:
+            available = [slot for slot in available if slot < "12:00"]
+        elif "afternoon" in preference:
+            available = [slot for slot in available if "12:00" <= slot < "17:00"]
+        elif "evening" in preference:
+            available = [slot for slot in available if slot >= "17:00"]
+        available = [slot for slot in available if not (new_day.isoformat() == appt["appointment_date"] and slot == appt["appointment_time"])]
+        if not available:
+            return None, "I couldn't find a free slot for that new date/time. Try another slot. No changes were made."
+        pending["new_day"] = new_day.isoformat()
+        pending["new_slot"] = available[0]
+    return pending, "Review the change below. Nothing will be changed until you confirm."
+
+
+def render_change_confirmation(state_key, u, button_prefix):
+    pending = st.session_state.get(state_key)
+    if not pending:
+        return
+    with st.container(border=True):
+        st.markdown("**Confirm appointment change**")
+        st.write(f"**Action:** {'Cancel' if pending['action'] == 'cancel' else 'Reschedule'}")
+        st.write(f"**Appointment:** {pending['department']} — {pending['staff_name']}")
+        st.write(f"**Current slot:** {pending['old_day']} at {pending['old_slot']}")
+        if pending['action'] == 'reschedule':
+            st.write(f"**New slot:** {pending['new_day']} at {pending['new_slot']}")
+        yes, no = st.columns(2)
+        if yes.button("Confirm change", key=f"{button_prefix}_change_yes", type="primary"):
+            try:
+                if pending["action"] == "cancel":
+                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')", (pending["appointment_id"], u["id"]))
+                    result_message = "Your appointment has been cancelled."
+                else:
+                    run("UPDATE appointments SET appointment_date=?,appointment_time=? WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')",
+                        (pending["new_day"], pending["new_slot"], pending["appointment_id"], u["id"]))
+                    result_message = "Your appointment has been rescheduled."
+                # Share the result with both chat interfaces so it remains visible after switching tabs.
+                st.session_state.setdefault("chat", []).append({"role":"assistant", "content":result_message})
+                st.session_state.setdefault("floating_ai_messages", []).append({"role":"assistant", "content":result_message})
+                st.session_state.pop(state_key, None)
+                st.rerun()
+            except psycopg.errors.UniqueViolation:
+                st.error("That slot was just taken. No change was made; please choose another time.")
+        if no.button("Keep appointment unchanged", key=f"{button_prefix}_change_no"):
+            st.session_state.pop(state_key, None)
+            st.rerun()
+
 
 def student_page(u):
     st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
@@ -293,6 +381,7 @@ def student_page(u):
                     except psycopg.errors.UniqueViolation: st.error("That slot was just taken. No booking was made.")
                 if no.button("Don't book"):
                     st.session_state.pop("ai_pending",None); st.rerun()
+        render_change_confirmation("ai_pending_change", u, "regular_ai")
         message = st.chat_input("Type naturally, short forms are okay...")
         if message:
             st.session_state.chat.append({"role":"user","content":message})
@@ -337,8 +426,10 @@ def student_page(u):
                                     "day":day.isoformat(),"slot":slot,"reason":reason}
                                 answer = "I found a possible slot. Review it below and confirm before I submit the request."
                 elif kind == "view": answer = "Open My appointments to see your saved bookings and statuses."
-                elif kind == "cancel": answer = "Open My appointments and cancel the specific appointment there. No appointment has been cancelled by this message."
-                elif kind == "reschedule": answer = "Use My appointments for now. Conversational rescheduling will be added later."
+                elif kind in ("cancel", "reschedule"):
+                    pending_change, answer = stage_appointment_change(u, intent, kind)
+                    if pending_change:
+                        st.session_state.ai_pending_change = pending_change
                 elif kind == "find_department": answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
                 else: answer = intent.get("clarifying_question") or "I can help with booking, viewing appointments, finding a department, cancellation or rescheduling. What do you need?"
                 st.session_state.chat.append({"role":"assistant","content":answer})
@@ -461,6 +552,8 @@ def floating_ai_widget(u):
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":"No booking was made."})
                 st.rerun()
 
+        render_change_confirmation("ai_pending_change", u, "floating_ai")
+
         with st.form("floating_ai_message_form", clear_on_submit=True):
             message = st.text_input("Message", placeholder="Ask to book an appointment…", label_visibility="collapsed")
             sent = st.form_submit_button("Send", use_container_width=True)
@@ -518,10 +611,10 @@ def floating_ai_widget(u):
                                 answer = "I found a possible slot. Review the details below and confirm if you want to submit the request."
                 elif kind == "view":
                     answer = "Your appointments are shown in the My appointments section of your dashboard."
-                elif kind == "cancel":
-                    answer = "To avoid cancelling the wrong appointment, use the Cancel appointment button in My appointments."
-                elif kind == "reschedule":
-                    answer = "Please cancel the existing request in My appointments, then submit a new request for your preferred slot."
+                elif kind in ("cancel", "reschedule"):
+                    pending_change, answer = stage_appointment_change(u, intent, kind)
+                    if pending_change:
+                        st.session_state.ai_pending_change = pending_change
                 elif kind == "find_department":
                     answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
                 else:
