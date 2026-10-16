@@ -1,4 +1,4 @@
-import os, hashlib, hmac, json
+import os, hashlib, hmac, json, time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import psycopg
@@ -186,8 +186,39 @@ date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morn
 reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
 If a detail is unclear, leave it empty and ask a concise question.
 Student message: {message}"""
-    response = client.models.generate_content(model="gemini-3.8-flash", contents=prompt,
-        config={"response_mime_type":"application/json", "temperature":0.1})
+    # Retry transient capacity/service errors, then try a supported lightweight fallback.
+    # Keep the same prompt and JSON output contract for both models.
+    models = ["gemini-3.8-flash", "gemini-3.1-flash-lite"]
+    last_error = None
+    response = None
+    for model_name in models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={"response_mime_type": "application/json", "temperature": 0.1},
+                )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                error_text = str(exc).lower()
+                transient = any(token in error_text for token in (
+                    "503", "unavailable", "429", "resource_exhausted",
+                    "internal", "deadline", "temporarily"
+                ))
+                if transient and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                break
+        if response is not None:
+            break
+    if response is None:
+        raise RuntimeError(
+            "Gemini is temporarily unavailable or rate-limited. Please wait a minute and try again. "
+            f"Technical detail: {type(last_error).__name__ if last_error else 'UnknownError'}"
+        ) from last_error
     result = json.loads(response.text)
     if not isinstance(result, dict): raise ValueError("Unexpected AI response")
     return result
