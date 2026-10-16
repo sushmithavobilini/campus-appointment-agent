@@ -12,8 +12,8 @@ except ImportError:
 
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-DEPARTMENTS = ["Faculty Members", "Academic Advisors", "Placement Office", "Accommodation Department",
-               "Transportation Department", "IT Department", "Student Affairs", "Cultural Department", "Administration"]
+# Keep only the three departments currently staffed in the prototype.
+DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
 SLOTS = ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"]
 
 def hash_pw(password):
@@ -68,18 +68,25 @@ def init_db():
                     cur.execute(statement)
             # Safe schema migration for existing PostgreSQL deployments.
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
-            cur.execute("SELECT COUNT(*) AS n FROM users")
-            count = cur.fetchone()["n"]
-            if count == 0:
+            # Remove the old student demo account from active use while preserving appointment foreign keys.
+            cur.execute("UPDATE users SET is_active=FALSE, username='retired_student_demo', password_hash=%s, full_name='Deleted Student', srn=NULL, gender=NULL, course=NULL, study_year=NULL WHERE username IN ('student.demo','DEMO-STU-001') AND role='student'", (hash_pw(os.urandom(32).hex()),))
+
+            # Convert the three original staff demo usernames to name-based logins.
+            cur.execute("UPDATE users SET username='Dr. Ananya Rao', full_name='Dr. Ananya Rao', department='Placement Office' WHERE username='staff.placement'")
+            cur.execute("UPDATE users SET username='Ms. Kavya Nair', full_name='Ms. Kavya Nair', department='Academic Advisors' WHERE username='staff.advisor'")
+            cur.execute("UPDATE users SET username='Mr. Rahul Mehta', full_name='Mr. Rahul Mehta', department='IT Department' WHERE username='staff.it'")
+
+            cur.execute("SELECT COUNT(*) AS n FROM users WHERE role='staff' AND is_active=TRUE")
+            staff_count = cur.fetchone()["n"]
+            if staff_count == 0:
                 users = [
-                  ("student.demo",hash_pw("StudentDemo123!"),"student","Aarav Demo","DEMO-STU-001","Prefer not to say","BBA Business Analytics","Year 3",None,None,None,None),
-                  ("staff.placement",hash_pw("StaffDemo123!"),"staff","Dr. Placement Demo",None,None,None,None,"Placement Office","Placement Officer","B-204","Block B"),
-                  ("staff.advisor",hash_pw("StaffDemo123!"),"staff","Ms. Advisor Demo",None,None,None,None,"Academic Advisors","Academic Advisor","A-108","Block A"),
-                  ("staff.it",hash_pw("StaffDemo123!"),"staff","Mr. IT Demo",None,None,None,None,"IT Department","IT Support Officer","IT-012","IT Block"),
+                  ("Dr. Ananya Rao",hash_pw("ChangeMe123!"),"staff","Dr. Ananya Rao",None,None,None,None,"Placement Office","Placement Officer","B-204","Block B"),
+                  ("Ms. Kavya Nair",hash_pw("ChangeMe123!"),"staff","Ms. Kavya Nair",None,None,None,None,"Academic Advisors","Academic Advisor","A-108","Block A"),
+                  ("Mr. Rahul Mehta",hash_pw("ChangeMe123!"),"staff","Mr. Rahul Mehta",None,None,None,None,"IT Department","IT Support Officer","IT-012","IT Block"),
                 ]
                 cur.executemany("""INSERT INTO users
                   (username,password_hash,role,full_name,srn,gender,course,study_year,department,designation,room_no,block_name)
-                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", users)
+                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(username) DO NOTHING""", users)
 
 def all_rows(sql, args=()):
     # Keep existing application queries while translating SQLite placeholders to PostgreSQL.
@@ -117,25 +124,34 @@ def login_page():
     with a:
         st.subheader("Your campus, easier to navigate.")
         st.write("Find the right department, book appointments and track follow-up actions in one place.")
-        st.info("Prototype only. Not an official university system. Use fictional demo accounts.")
+        st.info("Prototype only. Not an official university system. Use authorised account credentials.")
         st.write("Departments: " + " · ".join(DEPARTMENTS))
     with b:
         sign_in_tab, register_tab = st.tabs(["Sign in", "Register student account"])
         with sign_in_tab:
             st.subheader("Sign in")
             role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
-            username = st.text_input("Username", key="login_username")
+            login_identifier = st.text_input(
+                "SRN" if role == "Student" else "Staff full name",
+                key="login_identifier",
+                placeholder="Enter your SRN" if role == "Student" else "Enter your full name exactly as registered"
+            )
             password = st.text_input("Password", type="password", key="login_password")
             if st.button("Sign in", type="primary", use_container_width=True):
-                u = user_by_name(username.strip())
+                if role == "Student":
+                    matches = all_rows(
+                        "SELECT * FROM users WHERE srn=? AND role='student' AND is_active=TRUE",
+                        (login_identifier.strip(),)
+                    )
+                    u = matches[0] if matches else None
+                else:
+                    u = user_by_name(login_identifier.strip())
                 if u and u.get("is_active", True) and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
                     st.session_state.uid = u["id"]
                     st.session_state.last_activity = datetime.now().timestamp()
                     st.rerun()
                 else:
-                    st.error("Login failed. Check your username, password and account status.")
-            with st.expander("Fictional demo accounts"):
-                st.code("Student: student.demo / StudentDemo123!\\nPlacement staff: staff.placement / StaffDemo123!\\nAdvisor: staff.advisor / StaffDemo123!\\nIT staff: staff.it / StaffDemo123!")
+                    st.error("Login failed. Check your SRN/staff username, password and account status.")
         with register_tab:
             st.subheader("Create a student account")
             st.caption("Staff accounts are created by an authorised administrator; public staff registration is disabled.")
@@ -145,31 +161,31 @@ def login_page():
                 reg_gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
                 reg_course = st.text_input("Course", placeholder="e.g. BBA Business Analytics")
                 reg_year = st.selectbox("Year of study", ["Year 1", "Year 2", "Year 3", "Year 4"])
-                reg_username = st.text_input("Choose username")
+                st.info("Your SRN will be your username for login.")
                 reg_password = st.text_input("Create password (10+ characters)", type="password")
                 reg_confirm = st.text_input("Confirm password", type="password")
                 reg_submit = st.form_submit_button("Create account", type="primary", use_container_width=True)
             if reg_submit:
-                if not all([reg_name.strip(), reg_srn.strip(), reg_course.strip(), reg_username.strip(), reg_password]):
+                if not all([reg_name.strip(), reg_srn.strip(), reg_course.strip(), reg_password]):
                     st.error("Please fill in all required fields.")
                 elif len(reg_password) < 10:
                     st.error("Use a password with at least 10 characters.")
                 elif reg_password != reg_confirm:
                     st.error("Passwords do not match.")
-                elif user_by_name(reg_username.strip()):
-                    st.error("That username is already taken. Choose another.")
-                elif all_rows("SELECT id FROM users WHERE srn=? AND role='student' AND is_active=TRUE", (reg_srn.strip(),)):
-                    st.error("An active student account already uses that SRN.")
+                elif all_rows("SELECT id FROM users WHERE srn=? AND role='student'", (reg_srn.strip(),)):
+                    st.error("That SRN is already registered. Please contact the administrator if you need account help.")
+                elif all_rows("SELECT id FROM users WHERE username=?", (reg_srn.strip(),)):
+                    st.error("This SRN conflicts with an existing login identifier. Please contact the administrator.")
                 else:
                     try:
                         run("""INSERT INTO users
                             (username,password_hash,role,full_name,srn,gender,course,study_year,is_active)
                             VALUES(?,?,?,?,?,?,?,?,TRUE)""",
-                            (reg_username.strip(), hash_pw(reg_password), "student", reg_name.strip(),
+                            (reg_srn.strip(), hash_pw(reg_password), "student", reg_name.strip(),
                              reg_srn.strip(), reg_gender, reg_course.strip(), reg_year))
                         st.success("Account created. You can now sign in using your new username and password.")
                     except psycopg.errors.UniqueViolation:
-                        st.error("That username is already registered. Please choose another.")
+                        st.error("That SRN is already registered. Please check it and try again.")
 
 def profile_page(u):
     st.header("Profile")
