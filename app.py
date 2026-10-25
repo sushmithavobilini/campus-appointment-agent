@@ -12,8 +12,7 @@ except ImportError:
 
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-DEPARTMENTS = ["Faculty Members", "Academic Advisors", "Placement Office", "Accommodation Department",
-               "Transportation Department", "IT Department", "Student Affairs", "Cultural Department", "Administration"]
+DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
 SLOTS = ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"]
 
 def hash_pw(password):
