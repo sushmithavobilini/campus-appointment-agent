@@ -40,8 +40,9 @@ def db():
         url = os.getenv("DATABASE_URL", "")
     if not url:
         raise RuntimeError("DATABASE_URL is missing from Streamlit Secrets.")
-    return psycopg.connect(url, row_factory=dict_row, connect_timeout=10)
+    return psycopg.connect(url, row_factory=dict_row, connect_timeout=5)
 
+@st.cache_resource
 def init_db():
     schema = """
     CREATE TABLE IF NOT EXISTS users(
@@ -266,197 +267,127 @@ def free_slots(staff_id, day):
         available = [slot for slot in available if slot > current_time]
     return available
 
+@st.cache_resource(show_spinner=False)
+def gemini_client(api_key):
+    if genai is None:
+        raise RuntimeError("Gemini SDK is not installed. Check requirements.txt.")
+    return genai.Client(api_key=api_key)
+
 def gemini_parse(message):
-    if genai is None: raise RuntimeError("Gemini SDK not installed. Redeploy after updating requirements.txt.")
-    try: key = st.secrets["GEMINI_API_KEY"]
-    except Exception: key = os.getenv("GEMINI_API_KEY", "")
-    if not key: raise RuntimeError("GEMINI_API_KEY is missing from Streamlit Secrets.")
-    client = genai.Client(api_key=key)
-    prompt = f"""Today is {date.today().isoformat()}. Interpret this student message for a university appointment app.
-Understand informal short forms/typos such as tmrw=tomorrow, aftnoon=afternoon, appt=appointment,
-cncl=cancel, resched=reschedule, fac=faculty, hod=head of department, pls=please.
-Allowed departments: {DEPARTMENTS}.
-Return only JSON with keys intent (book/view/cancel/reschedule/find_department/other), department (exact allowed name or empty),
-date (YYYY-MM-DD or empty), time (HH:MM 24-hour or empty), time_preference (morning/afternoon/evening/empty),
-reason, staff_name_hint, clarifying_question, summary. Resolve relative dates from today. Do not invent availability or claim a booking was made.
-If a detail is unclear, leave it empty and ask a concise question.
+    if genai is None:
+        raise RuntimeError("Gemini SDK is not installed. Check requirements.txt.")
+    try:
+        key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        key = os.getenv("GEMINI_API_KEY", "")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is missing from Streamlit Secrets.")
+    client = gemini_client(key)
+    prompt = f"""Today: {datetime.now(CAMPUS_TZ).date().isoformat()}. Interpret a student request for a campus appointment.
+Departments: {DEPARTMENTS}. Understand short forms like tmrw=tomorrow, appt=appointment, cncl=cancel, resched=reschedule.
+Return JSON only with keys intent (book/view/cancel/reschedule/find_department/other), department, date (new date for reschedule), time (new time), time_preference (morning/afternoon/evening), target_date (existing appointment date), target_time (existing appointment time), reason, staff_name_hint, clarifying_question, summary. Use ISO date YYYY-MM-DD and 24-hour HH:MM. Never claim an action has completed. Leave unclear fields empty.
 Student message: {message}"""
-    response = client.models.generate_content(model="gemini-3.8-flash", contents=prompt,
-        config={"response_mime_type":"application/json", "temperature":0.1})
-    result = json.loads(response.text)
-    if not isinstance(result, dict): raise ValueError("Unexpected AI response")
-    return result
+    # One fast model call; only fall back immediately if the primary model is unavailable.
+    last_error = None
+    for model_name in ("gemini-3.1-flash-lite", "gemini-3.8-flash"):
+        try:
+            response = client.models.generate_content(
+                model=model_name, contents=prompt,
+                config={"response_mime_type": "application/json", "temperature": 0.1},
+            )
+            result = json.loads(response.text or "{}")
+            if not isinstance(result, dict):
+                raise ValueError("Unexpected AI response")
+            return result
+        except Exception as exc:
+            last_error = exc
+            # Don't sleep/retry on Streamlit's request thread; try the fallback once.
+    raise RuntimeError("The AI service is busy. Please try again shortly.") from last_error
 
-@st.fragment(run_every="30s")
-def student_page(u):
-    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
-    st.caption("Student dashboard")
-    booking_tab, appointments_tab, ai_tab = st.tabs(["Book appointment", "My appointments", "🤖 AI assistant"])
-    with booking_tab:
-        department = st.selectbox("Department", DEPARTMENTS)
-        staff = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (department,))
-        if not staff:
-            st.info("No demo staff have been added to this department yet.")
-        else:
-            staff_map = {f"{s['full_name']} — {s['designation']}":s for s in staff}
-            label = st.selectbox("Staff member", list(staff_map))
-            s = staff_map[label]
-            st.caption(f"Office: {s['room_no'] or 'TBC'}, {s['block_name'] or 'TBC'}")
-            day = st.date_input("Date", min_value=datetime.now(CAMPUS_TZ).date(), value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1))
-            available_slots = free_slots(s["id"], day.isoformat())
-            if not available_slots:
-                st.warning("No available time slots for this staff member on the selected date. Choose another date or staff member.")
-                slot = None
-            else:
-                slot = st.selectbox("Available time slots", available_slots)
-            reason = st.text_area("Reason for appointment")
-            if st.button("Request appointment", type="primary", disabled=not available_slots):
-                if not reason.strip(): st.error("Please enter a reason.")
-                elif not slot: st.error("Please choose an available time slot.")
-                else:
-                    try:
-                        run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
-                          VALUES(?,?,?,?,?,?,?,?)""", (u["id"],s["id"],department,day.isoformat(),slot,reason.strip(),"Pending",datetime.now().isoformat()))
-                        st.success("Appointment request saved as Pending."); st.rerun()
-                    except psycopg.errors.UniqueViolation: st.error("That slot was just booked. Choose another available time.")
-    with appointments_tab:
-        appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
-          JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
-        if not appts: st.info("No appointments yet.")
-        for a in appts:
-            with st.container(border=True):
-                st.markdown(f"**{a['department']} — {a['staff_name']}**")
-                st.write(f"{a['appointment_date']} at {a['appointment_time']} · {a['status']}")
-                st.write(f"Office: {a['room_no']}, {a['block_name']}  \nReason: {a['reason']}")
-                if a["status"] in ("Pending","Confirmed") and st.button("Cancel appointment", key=f"cancel_{a['id']}"):
-                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=?", (a["id"],u["id"]))
-                    st.rerun()
-                if a["resolution_status"] != "Not recorded":
-                    st.write(f"**Outcome:** {a['resolution_status']}")
-                    if a["follow_up"]: st.write(f"**Follow-up:** {a['follow_up']}")
-    with ai_tab:
-        st.subheader("🤖 Campus AI Assistant")
-        st.caption("Try: “need to meet placement sir tmrw aftnoon”")
-        if st.session_state.get("ai_debug_error"):
-            with st.expander("Gemini diagnostic (for troubleshooting)", expanded=True):
-                st.code(st.session_state["ai_debug_error"])
-                if st.button("Clear diagnostic", key="clear_ai_diagnostic"):
-                    st.session_state.pop("ai_debug_error", None)
-                    st.rerun()
-        if "chat" not in st.session_state: st.session_state.chat = []
-        for m in st.session_state.chat:
-            with st.chat_message(m["role"]): st.write(m["content"])
-        pending = st.session_state.get("ai_pending")
-        if pending:
-            with st.container(border=True):
-                st.markdown("**Review before submitting**")
-                st.write(f"Department: {pending['department']}")
-                st.write(f"Staff: {pending['staff_name']}")
-                st.write(f"Date: {pending['day']} · Time: {pending['slot']}")
-                st.write(f"Reason: {pending['reason']}")
-                yes, no = st.columns(2)
-                if yes.button("Confirm booking", type="primary"):
-                    try:
-                        run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
-                          VALUES(?,?,?,?,?,?,?,?)""", (u["id"],pending["staff_id"],pending["department"],pending["day"],pending["slot"],pending["reason"],"Pending",datetime.now().isoformat()))
-                        st.session_state.chat.append({"role":"assistant","content":"Appointment request saved as Pending. The staff member still needs to confirm it."})
-                        st.session_state.pop("ai_pending",None); st.rerun()
-                    except psycopg.errors.UniqueViolation: st.error("That slot was just taken. No booking was made.")
-                if no.button("Don't book"):
-                    st.session_state.pop("ai_pending",None); st.rerun()
-        message = st.chat_input("Type naturally, short forms are okay...")
-        if message:
-            st.session_state.chat.append({"role":"user","content":message})
+
+def stage_appointment_change(u, intent, action):
+    """Stage a cancellation/reschedule; never mutate an appointment before explicit confirmation."""
+    target_date = (intent.get("target_date") or "").strip()
+    target_time = (intent.get("target_time") or "").strip()
+    rows = all_rows("""SELECT a.*, s.full_name AS staff_name FROM appointments a
+        JOIN users s ON s.id=a.staff_id
+        WHERE a.student_id=? AND a.status IN ('Pending','Confirmed') AND a.appointment_date>=?
+        ORDER BY a.appointment_date,a.appointment_time""", (u["id"], date.today().isoformat()))
+    if target_date:
+        rows = [r for r in rows if r["appointment_date"] == target_date]
+    if target_time:
+        rows = [r for r in rows if r["appointment_time"] == target_time]
+    if not target_date and len(rows) > 1:
+        return None, "You have multiple upcoming appointments. Please include the existing appointment date (and time if needed) so I change the right one."
+    if not rows:
+        return None, "I couldn't identify a matching upcoming appointment. Please include its existing date and time. No changes were made."
+    appt = rows[0]
+    pending = {"action": action, "appointment_id": appt["id"], "department": appt["department"],
+               "staff_name": appt["staff_name"], "old_day": appt["appointment_date"],
+               "old_slot": appt["appointment_time"]}
+    if action == "reschedule":
+        new_day_text = (intent.get("date") or "").strip()
+        new_time = (intent.get("time") or "").strip()
+        preference = (intent.get("time_preference") or "").lower()
+        try:
+            new_day = date.fromisoformat(new_day_text)
+        except ValueError:
+            new_day = None
+        if not new_day or new_day < date.today():
+            return None, "What future date would you like to move it to? No changes were made."
+        if new_time and new_time not in SLOTS:
+            return None, "That time isn't in the demo schedule. Choose one of the available demo slots. No changes were made."
+        available = free_slots(appt["staff_id"], new_day.isoformat())
+        # The appointment's current slot is considered busy, so only remove it from the busy list when staying on its current date.
+        if new_day.isoformat() == appt["appointment_date"]:
+            available.append(appt["appointment_time"])
+        available = sorted(set(available))
+        if new_time:
+            available = [slot for slot in available if slot == new_time]
+        elif "morning" in preference:
+            available = [slot for slot in available if slot < "12:00"]
+        elif "afternoon" in preference:
+            available = [slot for slot in available if "12:00" <= slot < "17:00"]
+        elif "evening" in preference:
+            available = [slot for slot in available if slot >= "17:00"]
+        available = [slot for slot in available if not (new_day.isoformat() == appt["appointment_date"] and slot == appt["appointment_time"])]
+        if not available:
+            return None, "I couldn't find a free slot for that new date/time. Try another slot. No changes were made."
+        pending["new_day"] = new_day.isoformat()
+        pending["new_slot"] = available[0]
+    return pending, "Review the change below. Nothing will be changed until you confirm."
+
+def render_change_confirmation(state_key, u, button_prefix):
+    pending = st.session_state.get(state_key)
+    if not pending:
+        return
+    with st.container(border=True):
+        st.markdown("**Confirm appointment change**")
+        st.write(f"**Action:** {'Cancel' if pending['action'] == 'cancel' else 'Reschedule'}")
+        st.write(f"**Appointment:** {pending['department']} — {pending['staff_name']}")
+        st.write(f"**Current slot:** {pending['old_day']} at {pending['old_slot']}")
+        if pending['action'] == 'reschedule':
+            st.write(f"**New slot:** {pending['new_day']} at {pending['new_slot']}")
+        yes, no = st.columns(2)
+        if yes.button("Confirm change", key=f"{button_prefix}_change_yes", type="primary"):
             try:
-                intent = gemini_parse(message)
-                kind = (intent.get("intent") or "other").lower()
-                answer = intent.get("summary") or "I understood your request."
-                if kind == "book":
-                    dept = intent.get("department") or ""
-                    day_text = intent.get("date") or ""
-                    tm = intent.get("time") or ""
-                    pref = (intent.get("time_preference") or "").lower()
-                    reason = (intent.get("reason") or "").strip() or message
-                    hint = (intent.get("staff_name_hint") or "").lower()
-                    if dept not in DEPARTMENTS:
-                        answer = "Which department do you need? For example, Placement Office, IT Department or Academic Advisors."
-                    elif not day_text:
-                        answer = intent.get("clarifying_question") or "What date would you like to meet?"
-                    else:
-                        try: day = date.fromisoformat(day_text)
-                        except ValueError: day = None
-                        if not day or day < date.today():
-                            answer = "I couldn't identify a valid future date. Please tell me the date you want."
-                        else:
-                            staff_list = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (dept,))
-                            if hint:
-                                matched = [s for s in staff_list if hint in s["full_name"].lower() or hint in (s["designation"] or "").lower()]
-                                if matched: staff_list = matched
-                            options = []
-                            for s in staff_list:
-                                avail = free_slots(s["id"],day.isoformat())
-                                if tm: avail = [x for x in avail if x == tm]
-                                elif "morning" in pref: avail = [x for x in avail if x < "12:00"]
-                                elif "afternoon" in pref: avail = [x for x in avail if "12:00" <= x < "17:00"]
-                                elif "evening" in pref: avail = [x for x in avail if x >= "17:00"]
-                                for slot in avail: options.append((s,slot))
-                            if not options:
-                                answer = "I couldn't find a matching free slot in the demo schedule. Try another date or time. No booking was made."
-                            else:
-                                s, slot = options[0]
-                                st.session_state.ai_pending = {"staff_id":s["id"],"staff_name":s["full_name"],"department":dept,
-                                    "day":day.isoformat(),"slot":slot,"reason":reason}
-                                answer = "I found a possible slot. Review it below and confirm before I submit the request."
-                elif kind == "view": answer = "Open My appointments to see your saved bookings and statuses."
-                elif kind == "cancel": answer = "Open My appointments and cancel the specific appointment there. No appointment has been cancelled by this message."
-                elif kind == "reschedule": answer = "Use My appointments for now. Conversational rescheduling will be added later."
-                elif kind == "find_department": answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
-                else: answer = intent.get("clarifying_question") or "I can help with booking, viewing appointments, finding a department, cancellation or rescheduling. What do you need?"
-                st.session_state.chat.append({"role":"assistant","content":answer})
-            except Exception as e:
-                # Persist a safe diagnostic across Streamlit's rerun so the error is visible.
-                try:
-                    secret_key = str(st.secrets.get("GEMINI_API_KEY", ""))
-                except Exception:
-                    secret_key = os.getenv("GEMINI_API_KEY", "")
-                detail = f"{type(e).__name__}: {str(e)[:600]}"
-                if secret_key:
-                    detail = detail.replace(secret_key, "[REDACTED_API_KEY]")
-                st.session_state["ai_debug_error"] = detail
-                st.session_state.chat.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again or use Book appointment."})
+                if pending["action"] == "cancel":
+                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')", (pending["appointment_id"], u["id"]))
+                    result_message = "Your appointment has been cancelled."
+                else:
+                    run("UPDATE appointments SET appointment_date=?,appointment_time=? WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')",
+                        (pending["new_day"], pending["new_slot"], pending["appointment_id"], u["id"]))
+                    result_message = "Your appointment has been rescheduled."
+                # Share the result with both chat interfaces so it remains visible after switching tabs.
+                st.session_state.setdefault("chat", []).append({"role":"assistant", "content":result_message})
+                st.session_state.setdefault("floating_ai_messages", []).append({"role":"assistant", "content":result_message})
+                st.session_state.pop(state_key, None)
+                st.rerun()
+            except psycopg.errors.UniqueViolation:
+                st.error("That slot was just taken. No change was made; please choose another time.")
+        if no.button("Keep appointment unchanged", key=f"{button_prefix}_change_no"):
+            st.session_state.pop(state_key, None)
             st.rerun()
-
-def staff_page(u):
-    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
-    st.caption(f"{u['department']} · Staff dashboard")
-    rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year FROM appointments a
-      JOIN users u ON u.id=a.student_id WHERE a.staff_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
-    if not rows: st.info("No appointments have been requested yet.")
-    for a in rows:
-        with st.container(border=True):
-            st.markdown(f"**{a['student_name']}** · {a['srn'] or 'No SRN'}")
-            st.write(f"{a['appointment_date']} at {a['appointment_time']} · {a['status']}")
-            st.write(f"{a['course'] or ''} · {a['study_year'] or ''}")
-            st.write(f"Reason: {a['reason']}")
-            if a["status"] == "Pending":
-                c1,c2 = st.columns(2)
-                if c1.button("Confirm",key=f"confirm_{a['id']}"):
-                    run("UPDATE appointments SET status='Confirmed' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
-                if c2.button("Reject",key=f"reject_{a['id']}"):
-                    run("UPDATE appointments SET status='Rejected' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
-            if a["status"] in ("Confirmed","Completed"):
-                with st.expander("Post-meeting record"):
-                    notes = st.text_area("Meeting reason/context",value=a["staff_notes"] or a["reason"],key=f"notes_{a['id']}")
-                    queries = st.text_area("Queries addressed",value=a["queries_addressed"] or "",key=f"queries_{a['id']}")
-                    resolution = st.selectbox("Resolution",["Not recorded","Resolved","Pending","Referred to another department"],
-                        index=["Not recorded","Resolved","Pending","Referred to another department"].index(a["resolution_status"] or "Not recorded"),key=f"resolution_{a['id']}")
-                    follow = st.text_area("Follow-up action",value=a["follow_up"] or "",key=f"follow_{a['id']}")
-                    if st.button("Save meeting record",key=f"save_{a['id']}"):
-                        run("""UPDATE appointments SET staff_notes=?,queries_addressed=?,resolution_status=?,follow_up=?,status='Completed'
-                          WHERE id=? AND staff_id=?""",(notes,queries,resolution,follow,a["id"],u["id"]))
-                        st.success("Meeting record saved."); st.rerun()
-
-
 
 def floating_ai_widget(u):
     """Floating student-facing AI chat panel; booking requests always require confirmation."""
@@ -532,6 +463,8 @@ def floating_ai_widget(u):
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":"No booking was made."})
                 st.rerun()
 
+        render_change_confirmation("ai_pending_change", u, "floating_ai")
+
         with st.form("floating_ai_message_form", clear_on_submit=True):
             message = st.text_input("Message", placeholder="Ask to book an appointment…", label_visibility="collapsed")
             sent = st.form_submit_button("Send", use_container_width=True)
@@ -589,18 +522,97 @@ def floating_ai_widget(u):
                                 answer = "I found a possible slot. Review the details below and confirm if you want to submit the request."
                 elif kind == "view":
                     answer = "Your appointments are shown in the My appointments section of your dashboard."
-                elif kind == "cancel":
-                    answer = "To avoid cancelling the wrong appointment, use the Cancel appointment button in My appointments."
-                elif kind == "reschedule":
-                    answer = "Please cancel the existing request in My appointments, then submit a new request for your preferred slot."
+                elif kind in ("cancel", "reschedule"):
+                    pending_change, answer = stage_appointment_change(u, intent, kind)
+                    if pending_change:
+                        st.session_state.ai_pending_change = pending_change
                 elif kind == "find_department":
                     answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
                 else:
                     answer = intent.get("clarifying_question") or "I can help with appointment requests and finding the right campus department. What do you need?"
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":answer})
             except Exception:
-                st.session_state.floating_ai_messages.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again or use the regular AI assistant tab."})
+                st.session_state.floating_ai_messages.append({"role":"assistant","content":"Sorry, I couldn't process that request. Please try again in a moment, or use Book appointment."})
             st.rerun()
+
+@st.fragment(run_every="30s")
+def student_page(u):
+    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
+    st.caption("Student dashboard")
+    booking_tab, appointments_tab = st.tabs(["Book appointment", "My appointments"])
+    with booking_tab:
+        department = st.selectbox("Department", DEPARTMENTS)
+        staff = all_rows("SELECT * FROM users WHERE role='staff' AND department=? ORDER BY full_name", (department,))
+        if not staff:
+            st.info("No demo staff have been added to this department yet.")
+        else:
+            staff_map = {f"{s['full_name']} — {s['designation']}":s for s in staff}
+            label = st.selectbox("Staff member", list(staff_map))
+            s = staff_map[label]
+            st.caption(f"Office: {s['room_no'] or 'TBC'}, {s['block_name'] or 'TBC'}")
+            day = st.date_input("Date", min_value=datetime.now(CAMPUS_TZ).date(), value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1))
+            available_slots = free_slots(s["id"], day.isoformat())
+            if not available_slots:
+                st.warning("No available time slots for this staff member on the selected date. Choose another date or staff member.")
+                slot = None
+            else:
+                slot = st.selectbox("Available time slots", available_slots)
+            reason = st.text_area("Reason for appointment")
+            if st.button("Request appointment", type="primary", disabled=not available_slots):
+                if not reason.strip(): st.error("Please enter a reason.")
+                elif not slot: st.error("Please choose an available time slot.")
+                else:
+                    try:
+                        run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
+                          VALUES(?,?,?,?,?,?,?,?)""", (u["id"],s["id"],department,day.isoformat(),slot,reason.strip(),"Pending",datetime.now().isoformat()))
+                        st.success("Appointment request saved as Pending."); st.rerun()
+                    except psycopg.errors.UniqueViolation: st.error("That slot was just booked. Choose another available time.")
+    with appointments_tab:
+        appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
+          JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+        if not appts: st.info("No appointments yet.")
+        for a in appts:
+            with st.container(border=True):
+                st.markdown(f"**{a['department']} — {a['staff_name']}**")
+                st.write(f"{a['appointment_date']} at {a['appointment_time']} · {a['status']}")
+                st.write(f"Office: {a['room_no']}, {a['block_name']}  \nReason: {a['reason']}")
+                if a["status"] in ("Pending","Confirmed") and st.button("Cancel appointment", key=f"cancel_{a['id']}"):
+                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=?", (a["id"],u["id"]))
+                    st.rerun()
+                if a["resolution_status"] != "Not recorded":
+                    st.write(f"**Outcome:** {a['resolution_status']}")
+                    if a["follow_up"]: st.write(f"**Follow-up:** {a['follow_up']}")
+
+def staff_page(u):
+    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
+    st.caption(f"{u['department']} · Staff dashboard")
+    rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year FROM appointments a
+      JOIN users u ON u.id=a.student_id WHERE a.staff_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+    if not rows: st.info("No appointments have been requested yet.")
+    for a in rows:
+        with st.container(border=True):
+            st.markdown(f"**{a['student_name']}** · {a['srn'] or 'No SRN'}")
+            st.write(f"{a['appointment_date']} at {a['appointment_time']} · {a['status']}")
+            st.write(f"{a['course'] or ''} · {a['study_year'] or ''}")
+            st.write(f"Reason: {a['reason']}")
+            if a["status"] == "Pending":
+                c1,c2 = st.columns(2)
+                if c1.button("Confirm",key=f"confirm_{a['id']}"):
+                    run("UPDATE appointments SET status='Confirmed' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
+                if c2.button("Reject",key=f"reject_{a['id']}"):
+                    run("UPDATE appointments SET status='Rejected' WHERE id=? AND staff_id=?", (a["id"],u["id"])); st.rerun()
+            if a["status"] in ("Confirmed","Completed"):
+                with st.expander("Post-meeting record"):
+                    notes = st.text_area("Meeting reason/context",value=a["staff_notes"] or a["reason"],key=f"notes_{a['id']}")
+                    queries = st.text_area("Queries addressed",value=a["queries_addressed"] or "",key=f"queries_{a['id']}")
+                    resolution = st.selectbox("Resolution",["Not recorded","Resolved","Pending","Referred to another department"],
+                        index=["Not recorded","Resolved","Pending","Referred to another department"].index(a["resolution_status"] or "Not recorded"),key=f"resolution_{a['id']}")
+                    follow = st.text_area("Follow-up action",value=a["follow_up"] or "",key=f"follow_{a['id']}")
+                    if st.button("Save meeting record",key=f"save_{a['id']}"):
+                        run("""UPDATE appointments SET staff_notes=?,queries_addressed=?,resolution_status=?,follow_up=?,status='Completed'
+                          WHERE id=? AND staff_id=?""",(notes,queries,resolution,follow,a["id"],u["id"]))
+                        st.success("Meeting record saved."); st.rerun()
+
 
 
 def main():
