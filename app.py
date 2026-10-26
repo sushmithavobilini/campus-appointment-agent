@@ -246,9 +246,22 @@ def profile_page(u):
                 st.rerun()
 
 def free_slots(staff_id, day):
+    """Return slots that are not booked and have not already started (campus local time)."""
     busy = {r["appointment_time"] for r in all_rows("""SELECT appointment_time FROM appointments
       WHERE staff_id=? AND appointment_date=? AND status NOT IN ('Cancelled','Rejected')""", (staff_id,day))}
-    return [s for s in SLOTS if s not in busy]
+    available = [slot for slot in SLOTS if slot not in busy]
+    try:
+        selected_day = date.fromisoformat(str(day))
+    except (TypeError, ValueError):
+        return []
+    today = datetime.now().date()
+    if selected_day < today:
+        return []
+    if selected_day == today:
+        current_time = datetime.now().strftime("%H:%M")
+        # A slot is no longer bookable once its start time has passed.
+        available = [slot for slot in available if slot > current_time]
+    return available
 
 def gemini_parse(message):
     if genai is None: raise RuntimeError("Gemini SDK not installed. Redeploy after updating requirements.txt.")
@@ -286,16 +299,22 @@ def student_page(u):
             s = staff_map[label]
             st.caption(f"Office: {s['room_no'] or 'TBC'}, {s['block_name'] or 'TBC'}")
             day = st.date_input("Date", min_value=date.today(), value=date.today()+timedelta(days=1))
-            slot = st.selectbox("Time", SLOTS)
+            available_slots = free_slots(s["id"], day.isoformat())
+            if not available_slots:
+                st.warning("No available time slots for this staff member on the selected date. Choose another date or staff member.")
+                slot = None
+            else:
+                slot = st.selectbox("Available time slots", available_slots)
             reason = st.text_area("Reason for appointment")
-            if st.button("Request appointment", type="primary"):
+            if st.button("Request appointment", type="primary", disabled=not available_slots):
                 if not reason.strip(): st.error("Please enter a reason.")
+                elif not slot: st.error("Please choose an available time slot.")
                 else:
                     try:
                         run("""INSERT INTO appointments(student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at)
                           VALUES(?,?,?,?,?,?,?,?)""", (u["id"],s["id"],department,day.isoformat(),slot,reason.strip(),"Pending",datetime.now().isoformat()))
                         st.success("Appointment request saved as Pending."); st.rerun()
-                    except psycopg.errors.UniqueViolation: st.error("That slot is already booked. Choose another.")
+                    except psycopg.errors.UniqueViolation: st.error("That slot was just booked. Choose another available time.")
     with appointments_tab:
         appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
           JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
