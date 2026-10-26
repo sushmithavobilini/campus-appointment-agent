@@ -1,5 +1,6 @@
 import os, hashlib, hmac, json
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
@@ -13,6 +14,7 @@ except ImportError:
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
+CAMPUS_TZ = ZoneInfo("Asia/Kolkata")
 SLOTS = ["10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30"]
 
 def hash_pw(password):
@@ -254,11 +256,12 @@ def free_slots(staff_id, day):
         selected_day = date.fromisoformat(str(day))
     except (TypeError, ValueError):
         return []
-    today = datetime.now().date()
+    campus_now = datetime.now(CAMPUS_TZ)
+    today = campus_now.date()
     if selected_day < today:
         return []
     if selected_day == today:
-        current_time = datetime.now().strftime("%H:%M")
+        current_time = campus_now.strftime("%H:%M")
         # A slot is no longer bookable once its start time has passed.
         available = [slot for slot in available if slot > current_time]
     return available
@@ -284,6 +287,7 @@ Student message: {message}"""
     if not isinstance(result, dict): raise ValueError("Unexpected AI response")
     return result
 
+@st.fragment(run_every="30s")
 def student_page(u):
     st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
     st.caption("Student dashboard")
@@ -298,7 +302,7 @@ def student_page(u):
             label = st.selectbox("Staff member", list(staff_map))
             s = staff_map[label]
             st.caption(f"Office: {s['room_no'] or 'TBC'}, {s['block_name'] or 'TBC'}")
-            day = st.date_input("Date", min_value=date.today(), value=date.today()+timedelta(days=1))
+            day = st.date_input("Date", min_value=datetime.now(CAMPUS_TZ).date(), value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1))
             available_slots = free_slots(s["id"], day.isoformat())
             if not available_slots:
                 st.warning("No available time slots for this staff member on the selected date. Choose another date or staff member.")
