@@ -87,6 +87,43 @@ html[data-theme="dark"] hr, [data-theme="dark"] hr { border-color:var(--line)!im
 .quick-panel{border:1px solid var(--line);border-radius:18px;padding:20px;background:linear-gradient(145deg,var(--surface),var(--surface-2));min-height:250px}
 @media(max-width:800px){.dashboard-heading{font-size:28px}}
 
+
+/* Dashboard visual treatment */
+.block-container{max-width:1600px;padding:1.35rem 1.65rem 2.5rem}
+[data-testid="stSidebar"]{width:285px!important}
+[data-testid="stSidebar"]>div:first-child{padding:1.25rem 1rem 1rem}
+.brand-mark{background:linear-gradient(145deg,#fff,#a9caff)!important;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.brand-name{color:#fff!important;font-size:22px}
+.brand-sub{color:#dce8ff!important}
+.dashboard-topline{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.dashboard-heading{font-size:clamp(30px,3vw,42px);font-weight:850;letter-spacing:-.055em;line-height:1.08;margin:8px 0 5px}
+.dashboard-subtitle{font-size:16px;margin:0 0 22px;color:var(--muted)}
+.metric-tile{border:1px solid var(--line);border-radius:18px;padding:15px 18px;background:linear-gradient(135deg,var(--surface),var(--surface-2));box-shadow:0 10px 26px rgba(20,45,100,.07);min-height:112px}
+.metric-tile .metric-label{font-size:13px;font-weight:700;color:var(--muted)}
+.metric-tile .metric-value{font-size:31px;font-weight:850;color:var(--ink);line-height:1.15;margin-top:5px}
+.notification-item{border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin:10px 0;background:var(--surface);box-shadow:0 7px 22px rgba(25,50,100,.055)}
+.notification-item.unread{border-left:4px solid #3977f6}
+.notification-title{font-weight:800;font-size:16px;color:var(--ink);margin-bottom:5px}
+.notification-body{font-size:13px;color:var(--muted);line-height:1.5}
+.notification-time{font-size:11px;color:var(--muted);margin-top:8px}
+.quick-card{overflow:hidden;border:1px solid #b8d0ff;border-radius:20px;background:linear-gradient(145deg,#eaf2ff,#cfe1ff);box-shadow:0 12px 30px rgba(38,86,180,.13);padding:0}
+.quick-card-head{padding:18px 20px 8px;color:#10285e}
+.quick-card-head h3{font-size:22px;font-weight:850;margin:0;color:#10285e}
+.quick-card-head p{font-size:13px;color:#3f5688;margin:4px 0}
+.quick-card img{width:100%;height:230px;object-fit:cover;display:block}
+.quick-card-foot{margin:0 14px 14px;padding:14px 16px;border-radius:15px;background:rgba(255,255,255,.86);color:#122b65;display:flex;gap:12px;align-items:center}
+.quick-card-foot strong{display:block;font-size:14px}
+.quick-card-foot span{font-size:12px;color:#43577f}
+.stButton>button{transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+.stButton>button:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(34,80,170,.12)}
+[data-theme="dark"] .metric-tile,[data-theme="dark"] .notification-item{background:linear-gradient(145deg,#121d31,#172640);border-color:#304363}
+[data-theme="dark"] .quick-card{background:linear-gradient(145deg,#182b4b,#213b66);border-color:#3b5b8c}
+[data-theme="dark"] .quick-card-head h3{color:#f4f7ff}
+[data-theme="dark"] .quick-card-head p{color:#c5d7fa}
+[data-theme="dark"] .quick-card-foot{background:rgba(10,20,40,.9);color:#f4f7ff}
+[data-theme="dark"] .quick-card-foot span{color:#c5d7fa}
+@media(max-width:900px){.block-container{padding:1rem .8rem 2rem}.dashboard-heading{font-size:29px}}
+
 </style>"""
 _bg_path = Path(__file__).with_name("campus_login_bg.png")
 _bg64 = base64.b64encode(_bg_path.read_bytes()).decode("ascii") if _bg_path.exists() else ""
@@ -395,7 +432,6 @@ def free_slots(staff_id, day, exclude_appointment_id=None):
         available = [slot for slot in available if slot > current_time]
     return available
 
-@st.fragment(run_every="15s")
 def student_page(u, section="Book appointment"):
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Your campus support overview")
@@ -539,7 +575,6 @@ def student_page(u, section="Book appointment"):
                     st.info("Chairperson response: " + c["chairperson_reply"])
 
 
-@st.fragment(run_every="15s")
 def staff_page(u, section="My Meetings"):
     is_chair = bool(u.get("is_chairperson"))
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
@@ -794,65 +829,139 @@ def _dashboard_metrics(u):
     return row, unread
 
 
-def student_dashboard(u):
+
+def _render_dashboard(u):
     row, unread = _dashboard_metrics(u)
-    st.markdown(f'<div class="dashboard-heading">Good to see you, {u["full_name"].split()[0]}</div><div class="dashboard-subtitle">Your campus support overview</div>', unsafe_allow_html=True)
-    cols = st.columns(4)
-    for col, label, value in zip(cols, ["Upcoming", "Pending", "Completed", "Unread updates"],
-                                 [row["upcoming"], row["pending"], row["completed"], unread]):
-        with col: st.metric(label, value)
-    st.markdown("### Notifications")
-    main_col, side_col = st.columns([2.1, 1])
-    notes = all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (u["id"],))
-    with main_col:
+    first = u["full_name"].split()[0]
+    subtitle = "Your campus support overview" if u["role"] == "student" else f"{u.get('department') or 'Staff'} · Your campus workspace"
+    st.markdown(
+        f'<div class="dashboard-topline"><div><div class="dashboard-heading">Good to see you, {first}</div>'
+        f'<div class="dashboard-subtitle">{subtitle}</div></div>'
+        f'<div style="text-align:right;font-weight:750;color:var(--ink)">{first}<br>'
+        f'<span style="font-size:12px;color:var(--muted);font-weight:500">{"Student" if u["role"]=="student" else "Staff"}</span></div></div>',
+        unsafe_allow_html=True,
+    )
+
+    metrics = [
+        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], "▣", "blue"),
+        ("Pending" if u["role"] == "student" else "Pending requests", row["pending"], "⌛", "amber"),
+        ("Completed", row["completed"], "✓", "green"),
+        ("Unread updates", unread, "♧", "violet"),
+    ]
+    cols = st.columns(4, gap="medium")
+    for col, (label, value, symbol, tone) in zip(cols, metrics):
+        with col:
+            st.markdown(
+                f'<div class="metric-tile"><div style="font-size:22px;margin-bottom:6px">{symbol}</div>'
+                f'<div class="metric-label">{label}</div><div class="metric-value">{value}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    st.write("")
+    left, right = st.columns([2.05, 1], gap="large")
+    notes = all_rows(
+        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5",
+        (u["id"],),
+    )
+    with left:
+        st.markdown("## ♧  Notifications")
+        st.caption("Stay updated on your appointments and requests")
         if not notes:
-            st.info("No notifications yet.")
+            st.info("You're all caught up. No notifications yet.")
         for n in notes:
-            with st.container(border=True):
-                st.markdown(f"**{n['title']}**")
-                st.write(n["message"])
-                st.caption(n["created_at"])
-                if not n["is_read"] and st.button("Mark as read", key=f"dashboard_read_{n['id']}"):
-                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],))
+            is_unread = not n["is_read"]
+            c1, c2 = st.columns([5, 1.25], vertical_alignment="center")
+            with c1:
+                st.markdown(
+                    f'<div class="notification-item {"unread" if is_unread else ""}">'
+                    f'<div class="notification-title">{"🔵 " if is_unread else ""}{n["title"]}</div>'
+                    f'<div class="notification-body">{n["message"]}</div>'
+                    f'<div class="notification-time">◷ &nbsp;{n["created_at"]}</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                if is_unread and st.button("Mark as read", key=f"dash_mark_read_{u['id']}_{n['id']}"):
+                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"], u["id"]))
                     st.rerun()
-    with side_col:
-        with st.container(border=True):
-            st.markdown("### Quick overview")
-            st.write("Your campus appointments and support updates are in one place.")
-            st.write(f"**{unread}** unread updates")
-            st.write(f"**{row['upcoming']}** upcoming appointments")
-            st.write("Use the navigation panel to book a meeting or contact the Chairperson.")
+        if len(notes) == 5:
+            st.caption("Showing your five latest updates. Open Notifications to view more.")
+    with right:
+        art_path = Path(__file__).with_name("campus_dashboard_art.png")
+        if art_path.exists():
+            import base64 as _b64
+            encoded = _b64.b64encode(art_path.read_bytes()).decode("ascii")
+            st.markdown(
+                '<div class="quick-card"><div class="quick-card-head"><h3>Quick overview</h3>'
+                '<p>A quick look at your campus activity</p></div>'
+                f'<img src="data:image/png;base64,{encoded}" alt="Campus building illustration">'
+                '<div class="quick-card-foot"><div style="font-size:28px">🎓</div>'
+                '<div><strong>Your campus, connected</strong>'
+                '<span>Appointments and support in one place.</span></div></div></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            with st.container(border=True):
+                st.markdown("### Quick overview")
+                st.write("Your campus appointments and support updates are in one place.")
+        st.write("")
+        if u["role"] == "student":
+            st.metric("Upcoming appointments", row["upcoming"])
+        else:
+            st.metric("Pending student requests", row["pending"])
+            st.caption("Use the sidebar to manage meetings and student records.")
+
+
+def student_dashboard(u):
+    _render_dashboard(u)
 
 
 def staff_dashboard(u):
-    row, unread = _dashboard_metrics(u)
-    st.markdown(f'<div class="dashboard-heading">Good to see you, {u["full_name"].split()[0]}</div><div class="dashboard-subtitle">{u["department"] or "Staff"} · Your campus workspace</div>', unsafe_allow_html=True)
-    cols = st.columns(4)
-    for col, label, value in zip(cols, ["Today", "Pending requests", "Completed", "Unread updates"],
-                                 [row["upcoming"], row["pending"], row["completed"], unread]):
-        with col: st.metric(label, value)
-    st.markdown("### Notifications")
-    main_col, side_col = st.columns([2.1, 1])
-    notes = all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (u["id"],))
-    with main_col:
-        if not notes:
-            st.info("No notifications yet.")
-        for n in notes:
-            with st.container(border=True):
-                st.markdown(f"**{n['title']}**")
-                st.write(n["message"])
-                st.caption(n["created_at"])
-                if not n["is_read"] and st.button("Mark as read", key=f"staff_dashboard_read_{n['id']}"):
-                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],))
-                    st.rerun()
-    with side_col:
-        with st.container(border=True):
-            st.markdown("### Quick overview")
-            st.write("Manage student requests, scheduled meetings and follow-ups.")
-            st.write(f"**{row['pending']}** pending requests")
-            st.write(f"**{unread}** unread updates")
-            st.write("Open Workspace to manage appointments and student records.")
+    _render_dashboard(u)
 
+
+
+def apply_app_theme(dark_mode):
+    """Apply an explicit app theme independent of the browser/Streamlit theme setting."""
+    if dark_mode:
+        theme_css = """
+        <style>
+        :root{color-scheme:dark;--canvas:#091326;--surface:#111f35;--surface-2:#192b47;--ink:#f3f6ff;--muted:#bdc9df;--line:#2b4163;--brand:#83a5ff;--brand-strong:#a9c0ff;--brand-soft:#20375f;--shadow:0 12px 32px rgba(0,0,0,.28)}
+        html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#091326!important;color:#f3f6ff!important}
+        [data-testid="stHeader"]{background:rgba(9,19,38,.92)!important}
+        [data-testid="stMainBlockContainer"]{color:#f3f6ff!important}
+        h1,h2,h3,h4,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],.dashboard-heading,.notification-title{color:#f3f6ff!important}
+        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time{color:#bdc9df!important}
+        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item{background:#111f35!important;border-color:#2b4163!important;color:#f3f6ff!important}
+        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#172943!important;border-color:#365071!important}
+        input,textarea,[data-baseweb="select"] *{color:#f3f6ff!important}
+        [data-testid="stTabs"] [data-baseweb="tab-list"]{background:#172943!important;border-color:#2b4163!important}
+        [data-testid="stTabs"] button[role="tab"]{color:#bdc9df!important}
+        [data-testid="stTabs"] button[aria-selected="true"]{background:#29466f!important;color:#fff!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#1b3150!important;border-color:#365071!important;color:#f3f6ff!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deB!important;color:#fff!important}
+        .quick-card{background:linear-gradient(145deg,#172d50,#203d69)!important;border-color:#3b5b8c!important}
+        .quick-card-head h3{color:#f3f6ff!important}.quick-card-head p{color:#c5d7fa!important}
+        .quick-card-foot{background:rgba(9,19,38,.9)!important;color:#f3f6ff!important}
+        .quick-card-foot span{color:#c5d7fa!important}
+        hr{border-color:#2b4163!important}
+        </style>
+        """
+    else:
+        theme_css = """
+        <style>
+        :root{color-scheme:light;--canvas:#f3f6fc;--surface:#fff;--surface-2:#edf3fc;--ink:#101d3d;--muted:#52627f;--line:#d7e2f3;--brand:#315deb;--brand-strong:#1645b8;--brand-soft:#eaf0ff;--shadow:0 10px 28px rgba(20,45,100,.07)}
+        html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#f3f6fc!important;color:#101d3d!important}
+        [data-testid="stHeader"]{background:rgba(243,246,252,.92)!important}
+        h1,h2,h3,h4,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],.dashboard-heading,.notification-title{color:#101d3d}
+        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time{color:#52627f}
+        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item{background:#fff;border-color:#d7e2f3;color:#101d3d}
+        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#fff;border-color:#d7e2f3}
+        input,textarea,[data-baseweb="select"] *{color:#101d3d}
+        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#fff;border-color:#d7e2f3;color:#101d3d}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deb;color:#fff}
+        </style>
+        """
+    st.markdown(theme_css, unsafe_allow_html=True)
 
 
 def main():
@@ -873,6 +982,13 @@ def main():
         st.rerun()
         return
     st.session_state.last_activity = now
+
+    if "app_dark_mode" not in st.session_state:
+        st.session_state.app_dark_mode = False
+    theme_left, theme_right = st.columns([8, 1.5])
+    with theme_right:
+        st.toggle("Dark mode", key="app_dark_mode")
+    apply_app_theme(st.session_state.app_dark_mode)
 
     nav_items = ["Dashboard", "Notifications", "Workspace", "Profile", "About"]
     if u["role"] == "student":
