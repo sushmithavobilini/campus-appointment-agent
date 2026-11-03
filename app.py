@@ -965,8 +965,32 @@ def apply_interface_theme(dark_mode: bool):
         h1,h2,h3,h4,h5,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],[data-testid="stMetricLabel"],.dashboard-heading,.notification-title{color:var(--ink)!important}
         [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time,.notification-meta{color:var(--muted)!important}
         [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item,.notification-card,.quick-panel{background:var(--surface)!important;border-color:var(--line)!important;color:var(--ink)!important}
-        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#172943!important;border-color:var(--line)!important}
-        input,textarea,[data-baseweb="select"] *{color:var(--ink)!important}
+        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stForm"]{background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important}
+        [data-testid="stForm"] p,[data-testid="stForm"] label,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:var(--ink)!important}
+        /* Inputs, form fields and disabled fields must never keep the light-theme surface. */
+        [data-testid="stTextInput"] input,
+        [data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,
+        [data-baseweb="input"]>div,
+        [data-baseweb="base-input"],
+        [data-baseweb="select"]>div,
+        [data-baseweb="textarea"]>div,
+        [data-baseweb="datepicker"] input,
+        [data-baseweb="calendar"]{background:#172943!important;background-color:#172943!important;border-color:#456080!important;color:#f4f7ff!important}
+        input,textarea,[data-baseweb="select"] *,[data-baseweb="input"] *,[data-baseweb="textarea"] *{color:#f4f7ff!important;-webkit-text-fill-color:#f4f7ff!important}
+        input::placeholder,textarea::placeholder{color:#aebdd4!important;-webkit-text-fill-color:#aebdd4!important;opacity:1!important}
+        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,
+        [data-testid="stSelectbox"] label,[data-testid="stRadio"] label,
+        [data-testid="stCheckbox"] label,[data-testid="stDateInput"] label,
+        [data-testid="stNumberInput"] label{color:#e5edff!important}
+        [data-testid="stPopoverBody"],[data-baseweb="popover"],[data-baseweb="menu"],
+        [role="dialog"],[data-testid="stTooltipContent"]{background:#111f37!important;color:#f4f7ff!important;border:1px solid #2b4164!important}
+        [data-testid="stPopoverBody"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,
+        [role="dialog"] *{color:#f4f7ff!important}
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextInput"] input,
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextArea"] textarea{background:#172943!important}
         [data-testid="stTabs"] [data-baseweb="tab-list"]{background:var(--surface-2)!important;border-color:var(--line)!important}
         [data-testid="stTabs"] button[role="tab"]{color:var(--muted)!important}
         [data-testid="stTabs"] button[aria-selected="true"]{background:#29466f!important;color:#fff!important}
