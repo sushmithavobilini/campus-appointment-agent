@@ -724,26 +724,12 @@ def staff_page(u):
     is_chair = bool(u.get("is_chairperson"))
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Chairperson overview" if is_chair else f"{u['department']} · Staff workspace")
-    
-staff_summary = all_rows("""SELECT
-    COUNT(*) FILTER (
-        WHERE appointment_date = CURRENT_DATE::text
-        AND status NOT IN ('Cancelled','Rejected')
-    ) AS today_count,
-    COUNT(*) FILTER (
-        WHERE status='Pending'
-        AND booking_source='student'
-    ) AS pending_count,
-    COUNT(*) FILTER (
-        WHERE status IN ('Scheduled','Confirmed')
-        AND appointment_date >= CURRENT_DATE::text
-    ) AS upcoming_count,
-    COUNT(*) FILTER (
-        WHERE status='Completed'
-    ) AS completed_count
-    FROM appointments
-    WHERE staff_id=?""", (u["id"],))[0]
-
+    staff_summary = all_rows("""SELECT
+        COUNT(*) FILTER (WHERE appointment_date=CURRENT_DATE::text AND status NOT IN ('Cancelled','Rejected')) AS today_count,
+        COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending_count,
+        COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=CURRENT_DATE::text) AS upcoming_count,
+        COUNT(*) FILTER (WHERE status='Completed') AS completed_count
+        FROM appointments WHERE staff_id=?""", (u["id"],))[0]
     metric_cols = st.columns(4)
     for col, label, value in zip(metric_cols, ["Today", "Pending requests", "Upcoming", "Completed"],
                                  [staff_summary["today_count"], staff_summary["pending_count"], staff_summary["upcoming_count"], staff_summary["completed_count"]]):
