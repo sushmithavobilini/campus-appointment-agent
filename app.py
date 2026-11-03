@@ -12,6 +12,37 @@ except ImportError:
     genai = None
 
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
+
+# Apple-inspired visual layer: royal blue accents, cool light-grey surfaces.
+st.markdown("""<style>
+:root { --royal:#2457D6; --royal-dark:#173EAA; --ink:#17233D; --muted:#68758D; --surface:#FFFFFF; --canvas:#F3F5F9; --line:#E3E8F1; }
+html, body, [data-testid="stAppViewContainer"] { background:var(--canvas); color:var(--ink); }
+[data-testid="stHeader"] { background:rgba(243,245,249,.88); }
+.block-container { max-width:1440px; padding-top:2rem; padding-bottom:3rem; }
+[data-testid="stSidebar"] { background:#F8F9FC; border-right:1px solid var(--line); }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 { color:var(--royal-dark); letter-spacing:-.04em; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label { padding:9px 12px; border-radius:12px; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:#EAF0FF; }
+h1,h2,h3 { color:var(--ink); letter-spacing:-.035em; }
+h1 { font-weight:750; }
+h2,h3 { font-weight:700; }
+p, label, [data-testid="stCaptionContainer"] { color:var(--muted); }
+[data-testid="stVerticalBlockBorderWrapper"] { background:var(--surface); border:1px solid var(--line); border-radius:18px; box-shadow:0 3px 14px rgba(22,42,84,.035); }
+[data-testid="stMetric"] { background:white; border:1px solid var(--line); border-radius:16px; padding:16px 18px; }
+[data-testid="stMetricValue"] { color:var(--royal-dark); font-weight:750; }
+.stButton > button, [data-testid="stFormSubmitButton"] button { border-radius:12px; border:1px solid #D7E1F7; font-weight:650; min-height:42px; transition:all .15s ease; }
+.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--royal); border-color:var(--royal); color:white; }
+.stButton > button:hover { border-color:var(--royal); color:var(--royal-dark); transform:translateY(-1px); }
+.stButton > button[kind="primary"]:hover { background:var(--royal-dark); color:white; }
+[data-baseweb="input"] > div, [data-baseweb="select"] > div, [data-baseweb="textarea"] > div { border-radius:11px; background:white; border-color:#DCE3EF; }
+[data-testid="stTabs"] [data-baseweb="tab-list"] { gap:8px; background:#E9EDF5; padding:6px; border-radius:14px; }
+[data-testid="stTabs"] button[role="tab"] { border-radius:10px; padding:9px 16px; color:#52617A; }
+[data-testid="stTabs"] button[aria-selected="true"] { background:white; color:var(--royal-dark); box-shadow:0 1px 4px rgba(20,40,80,.08); }
+[data-testid="stExpander"] { border:1px solid var(--line); border-radius:14px; background:white; }
+[data-testid="stAlert"] { border-radius:13px; }
+hr { border-color:var(--line); }
+@media (max-width: 800px) { .block-container { padding:1rem .8rem 2rem; } }
+</style>""", unsafe_allow_html=True)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
 CAMPUS_TZ = ZoneInfo("Asia/Kolkata")
@@ -183,63 +214,75 @@ def get_user():
     return rows[0] if rows else None
 
 def login_page():
-    st.title("🏫 Campus Appointment Agent")
-    st.caption("A student-services appointment prototype")
-    a, b = st.columns([1.1, 1])
-    with a:
-        st.subheader("Your campus, easier to navigate.")
-        st.write("Find the right department, book appointments and track follow-up actions in one place.")
-        st.info("Prototype only. Not an official university system. Use fictional demo accounts.")
-        st.write("Departments: " + " · ".join(DEPARTMENTS))
-    with b:
-        sign_in_tab, register_tab = st.tabs(["Sign in", "Register student account"])
-        with sign_in_tab:
-            st.subheader("Sign in")
-            role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Sign in", type="primary", use_container_width=True):
-                u = user_by_name(username.strip())
-                if u and u.get("is_active", True) and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
-                    st.session_state.uid = u["id"]
-                    st.session_state.last_activity = datetime.now().timestamp()
-                    st.rerun()
-                else:
-                    st.error("Login failed. Check your username, password and account status.")
-            st.caption("Student login uses your SRN. Staff sign in using their full name as the username.")
-        with register_tab:
-            st.subheader("Create a student account")
-            st.caption("Staff accounts are created by an authorised administrator; public staff registration is disabled.")
-            with st.form("student_registration_form"):
-                reg_name = st.text_input("Full name")
-                reg_srn = st.text_input("SRN")
-                reg_gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
-                reg_course = st.text_input("Course", placeholder="e.g. BBA Business Analytics")
-                reg_year = st.selectbox("Year of study", ["Year 1", "Year 2", "Year 3", "Year 4"])
-                reg_password = st.text_input("Create password (6+ characters, at least one letter and one number)", type="password")
-                reg_confirm = st.text_input("Confirm password", type="password")
-                reg_submit = st.form_submit_button("Create account", type="primary", use_container_width=True)
-            if reg_submit:
-                if not all([reg_name.strip(), reg_srn.strip(), reg_course.strip(), reg_password]):
-                    st.error("Please fill in all required fields.")
-                elif len(reg_password) < 6 or not any(ch.isalpha() for ch in reg_password) or not any(ch.isdigit() for ch in reg_password):
-                    st.error("Use at least 6 characters, including at least one letter and one number.")
-                elif reg_password != reg_confirm:
-                    st.error("Passwords do not match.")
-                elif user_by_name(reg_srn.strip()):
-                    st.error("That SRN is already being used as a login. Check it or contact the administrator.")
-                elif all_rows("SELECT id FROM users WHERE srn=? AND role='student' AND is_active=TRUE", (reg_srn.strip(),)):
-                    st.error("An active student account already uses that SRN.")
-                else:
-                    try:
-                        run("""INSERT INTO users
-                            (username,password_hash,role,full_name,srn,gender,course,study_year,is_active)
-                            VALUES(?,?,?,?,?,?,?,?,TRUE)""",
-                            (reg_srn.strip(), hash_pw(reg_password), "student", reg_name.strip(),
-                             reg_srn.strip(), reg_gender, reg_course.strip(), reg_year))
-                        st.success("Account created. Sign in using your SRN and password.")
-                    except psycopg.errors.UniqueViolation:
-                        st.error("That username is already registered. Please choose another.")
+    st.markdown("""<div style='padding:10px 0 18px'>
+      <div style='font-size:13px;font-weight:750;letter-spacing:.12em;color:#2457D6'>CAMPUS APPOINTMENT AGENT</div>
+      <div style='font-size:36px;line-height:1.12;font-weight:780;letter-spacing:-.045em;color:#17233D;margin-top:8px'>Your campus support,<br>all in one place.</div>
+      <div style='font-size:16px;color:#68758D;margin-top:10px'>Book appointments, connect with departments and keep track of every follow-up.</div>
+    </div>""", unsafe_allow_html=True)
+    left, right = st.columns([1.15, 1], gap="large")
+    with left:
+        st.markdown("### A simpler way to get campus help")
+        st.write("Choose the right department, meet the right staff member and manage appointments without the back-and-forth.")
+        st.markdown("""<div style='display:flex;gap:10px;flex-wrap:wrap;margin:22px 0'>
+          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>Placement Office</span>
+          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>Academic Advisors</span>
+          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>IT Department</span>
+        </div><div style='background:white;border:1px solid #E3E8F1;border-radius:18px;padding:20px;margin-top:28px'>
+          <div style='font-size:13px;color:#2457D6;font-weight:750;letter-spacing:.08em'>CAMPUS CONNECT</div>
+          <div style='font-size:22px;font-weight:750;color:#17233D;margin:8px 0'>Simple. Clear. Connected.</div>
+          <div style='color:#68758D'>One place to book meetings, receive updates and follow through.</div></div>""", unsafe_allow_html=True)
+        st.caption("Prototype for campus services. Not an official university system.")
+    with right:
+        with st.container(border=True):
+            sign_in_tab, register_tab = st.tabs(["Sign in", "Create account"])
+            with sign_in_tab:
+                st.subheader("Welcome back")
+                st.caption("Sign in to continue to your campus dashboard.")
+                role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
+                username = st.text_input("SRN / Staff username", key="login_username")
+                password = st.text_input("Password", type="password", key="login_password")
+                if st.button("Sign in", type="primary", use_container_width=True):
+                    u = user_by_name(username.strip())
+                    if u and u.get("is_active", True) and u["role"] == role.lower() and verify_pw(password, u["password_hash"]):
+                        st.session_state.uid = u["id"]
+                        st.session_state.last_activity = datetime.now().timestamp()
+                        st.rerun()
+                    else:
+                        st.error("Login failed. Check your username, password and account status.")
+                st.caption("Students use their SRN. Staff use their full name as the username.")
+            with register_tab:
+                st.subheader("Create a student account")
+                st.caption("Staff accounts are created by an authorised administrator.")
+                with st.form("student_registration_form"):
+                    reg_name = st.text_input("Full name")
+                    reg_srn = st.text_input("SRN")
+                    reg_gender = st.selectbox("Gender", ["Prefer not to say", "Female", "Male", "Other"])
+                    reg_course = st.text_input("Course", placeholder="e.g. BBA Business Analytics")
+                    reg_year = st.selectbox("Year of study", ["Year 1", "Year 2", "Year 3", "Year 4"])
+                    reg_password = st.text_input("Create password (6+ characters, letters and numbers)", type="password")
+                    reg_confirm = st.text_input("Confirm password", type="password")
+                    reg_submit = st.form_submit_button("Create account", type="primary", use_container_width=True)
+                if reg_submit:
+                    if not all([reg_name.strip(), reg_srn.strip(), reg_course.strip(), reg_password]):
+                        st.error("Please fill in all required fields.")
+                    elif len(reg_password) < 6 or not any(ch.isalpha() for ch in reg_password) or not any(ch.isdigit() for ch in reg_password):
+                        st.error("Use at least 6 characters, including at least one letter and one number.")
+                    elif reg_password != reg_confirm:
+                        st.error("Passwords do not match.")
+                    elif user_by_name(reg_srn.strip()):
+                        st.error("That SRN is already being used as a login. Check it or contact the administrator.")
+                    elif all_rows("SELECT id FROM users WHERE srn=? AND role='student' AND is_active=TRUE", (reg_srn.strip(),)):
+                        st.error("An active student account already uses that SRN.")
+                    else:
+                        try:
+                            run("""INSERT INTO users
+                                (username,password_hash,role,full_name,srn,gender,course,study_year,is_active)
+                                VALUES(?,?,?,?,?,?,?,?,TRUE)""",
+                                (reg_srn.strip(), hash_pw(reg_password), "student", reg_name.strip(),
+                                 reg_srn.strip(), reg_gender, reg_course.strip(), reg_year))
+                            st.success("Account created. Sign in using your SRN and password.")
+                        except psycopg.errors.UniqueViolation:
+                            st.error("That username is already registered. Please choose another.")
 
 def profile_page(u):
     st.header("Profile")
@@ -509,7 +552,7 @@ def floating_ai_widget(u):
 
 @st.fragment(run_every="15s")
 def student_page(u):
-    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
+    st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Student dashboard")
     notifications_tab, book_tab, appointments_tab, chair_tab = st.tabs(
         ["Notifications", "Book appointment", "My appointments", "Contact Chairperson"])
@@ -645,7 +688,7 @@ def student_page(u):
 @st.fragment(run_every="15s")
 def staff_page(u):
     is_chair = bool(u.get("is_chairperson"))
-    st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
+    st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Chairperson dashboard" if is_chair else f"{u['department']} · Staff dashboard")
     if is_chair:
         tabs = st.tabs(["Student Directory", "Schedule Appointment", "Student Concerns", "Meetings"])
@@ -869,9 +912,9 @@ def main():
         st.session_state.clear(); st.warning("Signed out after inactivity. Please log in again."); st.rerun(); return
     st.session_state.last_activity = now
     with st.sidebar:
-        st.markdown("## 🏫 Campus Agent")
+        st.markdown("## ◈ Campus Agent")
         nav_options = ["Dashboard","Profile","About"]
-        page = st.radio("Navigation",nav_options)
+        page = st.radio("Workspace",nav_options)
         st.divider()
         if st.button("Sign out",use_container_width=True):
             st.session_state.clear(); st.rerun()
