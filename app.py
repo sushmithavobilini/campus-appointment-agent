@@ -1014,12 +1014,7 @@ def apply_interface_theme(dark_mode: bool):
 [data-testid="stSidebar"] [data-testid="stButton"] button:hover{background:rgba(255,255,255,.13)!important;border-color:rgba(255,255,255,.12)!important;transform:translateX(2px)}
 [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:linear-gradient(90deg,#3977f6,#4e83f4)!important;border-color:rgba(255,255,255,.12)!important;box-shadow:0 7px 18px rgba(0,0,0,.16)!important}
 [data-testid="stSidebar"] [data-testid="stButton"] button p{color:#fff!important}
-/* The complete profile identity is the popover trigger (not a tiny arrow beside it). */
-[data-testid="stPopover"]{width:100%}
-[data-testid="stPopover"]>button{width:100%!important;min-width:0!important;min-height:52px!important;height:auto!important;padding:7px 12px!important;border-radius:14px!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;white-space:normal!important;text-align:left!important;background:rgba(255,255,255,.72)!important;border:1px solid #d7e2f3!important;color:#10204b!important;box-shadow:0 4px 14px rgba(30,65,140,.08)!important}
-[data-testid="stPopover"]>button:hover{border-color:#6d96f5!important;background:#fff!important}
-[data-testid="stPopover"]>button p{font-size:13px!important;font-weight:700!important;color:#10204b!important;line-height:1.25!important;white-space:normal!important}
-[data-testid="stPopoverBody"]{min-width:230px!important}
+[data-testid="stPopover"]>button{min-width:38px!important;width:38px!important;height:42px!important;padding:0!important;border-radius:12px!important}
 @media(max-width:900px){.header-clearance{height:48px;margin-bottom:-48px}.profile-avatar{width:36px;height:36px;flex-basis:36px}}
 
 </style>"""
@@ -1303,7 +1298,7 @@ def main():
     header_subtitle = __import__("html").escape(role_label)
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
     h_spacer, h_bell, h_identity = st.columns(
-        [8.15, 0.75, 2.5], vertical_alignment="center"
+        [7.8, 0.75, 2.75], vertical_alignment="center"
     )
     apply_interface_theme(False)
     apply_reference_dashboard_styles(False)
@@ -1312,19 +1307,25 @@ def main():
             st.session_state.active_page = "Notifications"
             st.rerun()
     with h_identity:
-        # Make the entire identity control the popover trigger. There is no separate
-        # arrow button and clicking the identity never navigates directly to Profile.
-        profile_trigger_label = f"👤  {first_name}  ·  {role_label}  ⌄"
-        with st.popover(profile_trigger_label, use_container_width=True):
-            st.markdown(f"**{u['full_name']}**")
-            st.caption(role_label)
-            st.divider()
-            if st.button("👤  Profile", use_container_width=True, key="header_profile"):
-                st.session_state.active_page = "Profile"
-                st.rerun()
-            if st.button("↪  Sign out", use_container_width=True, key="header_signout"):
-                st.session_state.clear()
-                st.rerun()
+        # One real Streamlit button is the entire profile trigger. Clicking anywhere
+        # on the identity toggles a normal in-flow menu (no popover/arrow hit target).
+        if "profile_menu_open" not in st.session_state:
+            st.session_state.profile_menu_open = False
+        profile_label = f"👤  {u['full_name']}  ·  {role_label}   ▾"
+        if st.button(profile_label, key="header_profile_trigger", use_container_width=True):
+            st.session_state.profile_menu_open = not st.session_state.profile_menu_open
+            st.rerun()
+        if st.session_state.get("profile_menu_open", False):
+            with st.container(border=True):
+                st.markdown(f"**{u['full_name']}**")
+                st.caption(role_label)
+                if st.button("Profile", key="header_profile_option", use_container_width=True):
+                    st.session_state.profile_menu_open = False
+                    st.session_state.active_page = "Profile"
+                    st.rerun()
+                if st.button("Sign out", key="header_signout_option", use_container_width=True):
+                    st.session_state.clear()
+                    st.rerun()
 
     page = st.session_state.active_page
     if page == "Profile":
