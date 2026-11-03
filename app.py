@@ -1,4 +1,4 @@
-import os, hashlib, hmac, json, base64
+import os, hashlib, hmac, json, base64, time
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -398,16 +398,46 @@ def gemini_parse(message):
 Departments: {DEPARTMENTS}. Understand short forms like tmrw=tomorrow, appt=appointment, cncl=cancel, resched=reschedule.
 Return JSON only with keys intent (book/view/cancel/reschedule/find_department/other), department, date (new date for reschedule), time (new time), time_preference (morning/afternoon/evening), target_date (existing appointment date), target_time (existing appointment time), reason, staff_name_hint, clarifying_question, summary. Use ISO date YYYY-MM-DD and 24-hour HH:MM. Never claim an action has completed. Leave unclear fields empty.
 Student message: {message}"""
-    # One lightweight request only; avoid sequential fallback calls that double the wait.
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config={"response_mime_type": "application/json", "temperature": 0.1, "max_output_tokens": 256},
-    )
-    result = json.loads(response.text or "{}")
-    if not isinstance(result, dict):
-        raise ValueError("Unexpected AI response")
-    return result
+    # Try the preferred model first, then a previously configured lightweight backup.
+    # Retry only transient capacity/rate-limit/server errors; do not waste time retrying bad requests.
+    models = ("gemini-3.8-flash", "gemini-3.1-flash-lite")
+    last_error = None
+    for model_name in models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        "response_mime_type": "application/json",
+                        "temperature": 0.1,
+                        "max_output_tokens": 256,
+                    },
+                )
+                result = json.loads(response.text or "{}")
+                if not isinstance(result, dict):
+                    raise ValueError("Unexpected AI response")
+                return result
+            except Exception as exc:
+                last_error = exc
+                error_text = str(exc).lower()
+                status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+                transient = (
+                    status_code in (429, 500, 502, 503, 504)
+                    or any(token in error_text for token in (
+                        "503", "unavailable", "high demand", "429", "resource_exhausted",
+                        "rate limit", "500", "502", "504", "deadline exceeded", "temporarily"
+                    ))
+                )
+                if transient and attempt == 0:
+                    time.sleep(1.2)
+                    continue
+                # A model-specific outage/access issue should allow the backup model to run.
+                break
+    raise RuntimeError(
+        "Campus AI is temporarily unavailable on both configured Gemini models. "
+        f"Last error: {type(last_error).__name__}: {str(last_error)[:250]}"
+    ) from last_error
 
 
 def stage_appointment_change(u, intent, action):
