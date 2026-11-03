@@ -61,7 +61,7 @@ def init_db():
       id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
       role TEXT NOT NULL, full_name TEXT NOT NULL, srn TEXT, gender TEXT, course TEXT, study_year TEXT,
       department TEXT, designation TEXT, room_no TEXT, block_name TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE, is_chairperson BOOLEAN NOT NULL DEFAULT FALSE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE, is_chairperson BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE IF NOT EXISTS appointments(
       id BIGSERIAL PRIMARY KEY,
