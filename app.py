@@ -919,51 +919,6 @@ def staff_dashboard(u):
     _render_dashboard(u)
 
 
-
-def apply_app_theme(dark_mode):
-    """Apply an explicit app theme independent of the browser/Streamlit theme setting."""
-    if dark_mode:
-        theme_css = """
-        <style>
-        :root{color-scheme:dark;--canvas:#091326;--surface:#111f35;--surface-2:#192b47;--ink:#f3f6ff;--muted:#bdc9df;--line:#2b4163;--brand:#83a5ff;--brand-strong:#a9c0ff;--brand-soft:#20375f;--shadow:0 12px 32px rgba(0,0,0,.28)}
-        html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#091326!important;color:#f3f6ff!important}
-        [data-testid="stHeader"]{background:rgba(9,19,38,.92)!important}
-        [data-testid="stMainBlockContainer"]{color:#f3f6ff!important}
-        h1,h2,h3,h4,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],.dashboard-heading,.notification-title{color:#f3f6ff!important}
-        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time{color:#bdc9df!important}
-        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item{background:#111f35!important;border-color:#2b4163!important;color:#f3f6ff!important}
-        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#172943!important;border-color:#365071!important}
-        input,textarea,[data-baseweb="select"] *{color:#f3f6ff!important}
-        [data-testid="stTabs"] [data-baseweb="tab-list"]{background:#172943!important;border-color:#2b4163!important}
-        [data-testid="stTabs"] button[role="tab"]{color:#bdc9df!important}
-        [data-testid="stTabs"] button[aria-selected="true"]{background:#29466f!important;color:#fff!important}
-        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#1b3150!important;border-color:#365071!important;color:#f3f6ff!important}
-        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deB!important;color:#fff!important}
-        .quick-card{background:linear-gradient(145deg,#172d50,#203d69)!important;border-color:#3b5b8c!important}
-        .quick-card-head h3{color:#f3f6ff!important}.quick-card-head p{color:#c5d7fa!important}
-        .quick-card-foot{background:rgba(9,19,38,.9)!important;color:#f3f6ff!important}
-        .quick-card-foot span{color:#c5d7fa!important}
-        hr{border-color:#2b4163!important}
-        </style>
-        """
-    else:
-        theme_css = """
-        <style>
-        :root{color-scheme:light;--canvas:#f3f6fc;--surface:#fff;--surface-2:#edf3fc;--ink:#101d3d;--muted:#52627f;--line:#d7e2f3;--brand:#315deb;--brand-strong:#1645b8;--brand-soft:#eaf0ff;--shadow:0 10px 28px rgba(20,45,100,.07)}
-        html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{background:#f3f6fc!important;color:#101d3d!important}
-        [data-testid="stHeader"]{background:rgba(243,246,252,.92)!important}
-        h1,h2,h3,h4,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],.dashboard-heading,.notification-title{color:#101d3d}
-        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time{color:#52627f}
-        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item{background:#fff;border-color:#d7e2f3;color:#101d3d}
-        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#fff;border-color:#d7e2f3}
-        input,textarea,[data-baseweb="select"] *{color:#101d3d}
-        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#fff;border-color:#d7e2f3;color:#101d3d}
-        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deb;color:#fff}
-        </style>
-        """
-    st.markdown(theme_css, unsafe_allow_html=True)
-
-
 def main():
     init_db()
     if "uid" not in st.session_state:
@@ -982,13 +937,6 @@ def main():
         st.rerun()
         return
     st.session_state.last_activity = now
-
-    if "app_dark_mode" not in st.session_state:
-        st.session_state.app_dark_mode = False
-    theme_left, theme_right = st.columns([8, 1.5])
-    with theme_right:
-        st.toggle("Dark mode", key="app_dark_mode")
-    apply_app_theme(st.session_state.app_dark_mode)
 
     nav_items = ["Dashboard", "Notifications", "Workspace", "Profile", "About"]
     if u["role"] == "student":
@@ -1038,8 +986,14 @@ def main():
         profile_page(u)
     elif page == "About":
         st.markdown('<div class="dashboard-heading">About Campus Agent</div>', unsafe_allow_html=True)
-        st.write("A campus support workspace for appointments, department coordination and student follow-up.")
+        st.markdown("A campus support workspace for appointments, department coordination and student follow-up.")
         st.info("Prototype for demonstration. Use fictional data until formally approved by the university.")
+        st.markdown("### Contact & Support")
+        st.write("For questions or assistance with the Campus Appointment Agent:")
+        st.markdown("**Email:** xxxx@gmail.com")
+        st.markdown("**Project contacts**")
+        st.markdown("- Sushmitha Vobilini · 987xxxxx")
+        st.markdown("- Samshitha Srikanth · 765xxxxx")
     elif page == "Notifications":
         notifications_page(u)
     elif page == "Dashboard":
