@@ -923,7 +923,7 @@ def _render_dashboard(u):
                         st.rerun()
 
     with right:
-        art_name = "campus_dashboard_art.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art_dark.png"
+        art_name = "campus_dashboard_art_dark.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art.png"
         art_path = Path(__file__).with_name(art_name)
         if art_path.exists():
             encoded = base64.b64encode(art_path.read_bytes()).decode("ascii")
@@ -1063,7 +1063,59 @@ def apply_interface_theme(dark_mode: bool):
         [data-testid="stSidebar"] [data-testid="stButton"] button:focus:not(:active){outline:2px solid rgba(255,255,255,.55)!important}
         [data-testid="stSidebar"] [data-testid="stDivider"]{border-color:rgba(255,255,255,.24)!important}
         </style>"""
-    st.markdown(css, unsafe_allow_html=True)
+    if dark_mode:
+        control_css = """<style>
+        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
+        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
+        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
+          background:#172943!important;background-color:#172943!important;color:#F4F7FF!important;
+          -webkit-text-fill-color:#F4F7FF!important;border-color:#456080!important;caret-color:#F4F7FF!important}
+        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
+        [data-baseweb="input"] input:disabled{background:#223652!important;color:#DCE7F8!important;-webkit-text-fill-color:#DCE7F8!important;opacity:1!important}
+        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
+        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
+        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#E5EDFF!important}
+        input::placeholder,textarea::placeholder{color:#AEBED6!important;-webkit-text-fill-color:#AEBED6!important;opacity:1!important}
+        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#F4F7FF!important}
+        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#111F37!important;border-color:#365071!important}
+        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#111F37!important;border-color:#2B4164!important;color:#F4F7FF!important}
+        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#F4F7FF!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#1B3150!important;background-color:#1B3150!important;color:#F4F7FF!important;-webkit-text-fill-color:#F4F7FF!important;border:1px solid #456080!important}
+        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#29466F!important;color:#fff!important;border-color:#78A0FF!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#527BFF!important}
+        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#263750!important;color:#A9B8CF!important;-webkit-text-fill-color:#A9B8CF!important;opacity:1!important}
+        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#111F37!important;color:#F4F7FF!important;border-color:#365071!important}
+        [data-testid="stPopoverBody"] *{color:#F4F7FF!important}.profile-copy strong{color:#F4F7FF!important}.profile-copy small{color:#BDCAE0!important}
+        </style>"""
+    else:
+        control_css = """<style>
+        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
+        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
+        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
+          background:#fff!important;background-color:#fff!important;color:#10234A!important;
+          -webkit-text-fill-color:#10234A!important;border-color:#C9D8F0!important;caret-color:#10234A!important}
+        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
+        [data-baseweb="input"] input:disabled{background:#EDF3FC!important;color:#52627F!important;-webkit-text-fill-color:#52627F!important;opacity:1!important}
+        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
+        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
+        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#20365F!important}
+        input::placeholder,textarea::placeholder{color:#71819B!important;-webkit-text-fill-color:#71819B!important;opacity:1!important}
+        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#10234A!important}
+        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#fff!important;border-color:#C9D8F0!important}
+        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#fff!important;border-color:#D7E2F3!important;color:#10234A!important}
+        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#20365F!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#fff!important;background-color:#fff!important;color:#1645B8!important;-webkit-text-fill-color:#1645B8!important;border:1px solid #C9D8F0!important}
+        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#EAF0FF!important;color:#1645B8!important;border-color:#7398F5!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#315DEB!important}
+        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#E7EDF6!important;color:#8492A8!important;-webkit-text-fill-color:#8492A8!important;opacity:1!important}
+        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#fff!important;color:#10234A!important;border-color:#C9D8F0!important}
+        [data-testid="stPopoverBody"] *{color:#10234A!important}.profile-copy strong{color:#10234A!important}.profile-copy small{color:#52627F!important}
+        </style>"""
+    st.markdown(css + control_css, unsafe_allow_html=True)
 
 
 
@@ -1073,7 +1125,7 @@ def apply_reference_dashboard_styles(dark_mode):
     """Reference-matched dashboard styling shared by student and staff views."""
     light_sidebar = Path(__file__).with_name("campus_sidebar_art_light.png")
     dark_sidebar = Path(__file__).with_name("campus_sidebar_art_dark.png")
-    sidebar_path = light_sidebar
+    sidebar_path = dark_sidebar if dark_mode else light_sidebar
     sidebar_bg = ""
     if sidebar_path.exists():
         sidebar_b64 = base64.b64encode(sidebar_path.read_bytes()).decode("ascii")
@@ -1275,7 +1327,14 @@ def main():
     # Global header: lowered to clear Streamlit's top toolbar.
     initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
     first_name = u["full_name"].split()[0]
-    role_label = "Student" if u["role"] == "student" else (u.get("department") or "Staff")
+    if u["role"] == "student":
+        profile_primary = u["full_name"]
+        profile_secondary = " · ".join(part for part in [u.get("course") or "Course not set", u.get("study_year") or ""] if part)
+    else:
+        profile_primary = u["full_name"]
+        profile_secondary = u.get("department") or "Department not set"
+    profile_primary_html = __import__("html").escape(str(profile_primary))
+    profile_secondary_html = __import__("html").escape(str(profile_secondary))
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
     h_spacer, h_theme, h_bell, h_identity, h_menu = st.columns(
         [7.0, 1.15, 0.75, 2.05, 0.45], vertical_alignment="center"
@@ -1299,13 +1358,13 @@ def main():
     with h_identity:
         st.markdown(
             f'<div class="profile-identity"><span class="profile-avatar">{initials}</span>'
-            f'<span class="profile-copy"><strong>{first_name}</strong><small>{role_label}</small></span></div>',
+            f'<span class="profile-copy"><strong>{profile_primary_html}</strong><small>{profile_secondary_html}</small></span></div>',
             unsafe_allow_html=True,
         )
     with h_menu:
         with st.popover("⌄", use_container_width=True):
             st.markdown(f"**{u['full_name']}**")
-            st.caption(role_label)
+            st.caption(profile_secondary)
             st.divider()
             if st.button("👤  Profile", use_container_width=True, key="header_profile"):
                 st.session_state.active_page = "Profile"
