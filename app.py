@@ -50,6 +50,21 @@ hr { border-color:var(--line); }
 .login-pill { display:inline-block; margin:7px 6px 0 0; padding:8px 12px; border:1px solid rgba(255,255,255,.28); background:rgba(255,255,255,.15); border-radius:999px; color:#fff; font-size:12px; font-weight:650; }
 .login-card-title { color:var(--ink); font-size:26px; font-weight:780; letter-spacing:-.04em; }
 @media (max-width: 800px) { .block-container { padding:1rem .8rem 2rem; } .login-hero { min-height:300px; padding:24px; } }
+/* Header profile menu trigger and its two clear actions. */
+.st-key-header_profile_menu [data-testid="stPopover"]>button{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;white-space:normal!important;text-align:left!important;min-height:58px!important;border:0!important;border-radius:16px!important;background:rgba(255,255,255,.82)!important;color:#10234A!important;padding:8px 14px!important;box-shadow:0 4px 16px rgba(26,70,160,.10)!important;font-weight:750!important;line-height:1.35!important}
+.st-key-header_profile_menu [data-testid="stPopover"]>button:hover{background:#e8f0ff!important;border-color:#8fb2ff!important;transform:translateY(-1px)!important}
+.st-key-header_profile_menu [data-testid="stPopoverBody"]{min-width:245px!important;padding:14px!important}
+.profile-menu-identity{display:flex;align-items:center;gap:11px;padding:4px 2px 12px;color:#10234A}
+.profile-menu-identity>span:last-child{display:flex;flex-direction:column;gap:3px;min-width:0}
+.profile-menu-identity strong{font-size:14px;font-weight:800;overflow-wrap:anywhere}
+.profile-menu-identity small{font-size:12px;color:#52627F}
+.st-key-header_notifications button{min-height:48px!important;border-radius:14px!important;background:rgba(255,255,255,.8)!important;color:#1645b8!important;border:1px solid #c9d8f0!important}
+.sidebar-signout-spacer{height:clamp(18px,8vh,90px)}
+[data-testid="stSidebar"] [data-testid="stButton"] button:has(svg[aria-label="logout"]){margin-top:8px!important}
+@media(min-width:1100px){.block-container{max-width:1700px!important;padding-left:clamp(1.2rem,2.1vw,2.2rem)!important;padding-right:clamp(1.2rem,2.1vw,2.2rem)!important}}
+@media(max-width:1100px){.ref-welcome h1{font-size:clamp(26px,3.2vw,36px)}.ref-metric{height:98px;padding:12px}.ref-metric-icon{width:52px;height:52px;flex-basis:52px;font-size:25px}.ref-metric-copy strong{font-size:29px}.ref-campus-image{height:210px!important}}
+@media(max-width:760px){.ref-metric{height:88px}.ref-metric-copy span{font-size:12px}.ref-metric-copy strong{font-size:24px}.ref-notice-inline{gap:9px}.ref-notice-inline .ref-notice-icon{width:48px;height:48px;flex-basis:48px;font-size:24px}.ref-notice-heading{font-size:14px}.ref-notice-message{font-size:12px}}
+
 /* Streamlit's theme attribute is applied by the active app theme. Override every major surface in dark mode. */
 html[data-theme="dark"], body[data-theme="dark"], [data-theme="dark"] { --canvas:#0B1120; --surface:#121B2B; --surface-2:#1A263A; --ink:#F1F5FC; --muted:#B7C2D3; --line:#2A3950; --brand:#7394FF; --brand-strong:#9AB1FF; --brand-soft:#1D2D52; --shadow:0 8px 28px rgba(0,0,0,.22); color-scheme:dark; }
 html[data-theme="dark"] body, html[data-theme="dark"] [data-testid="stAppViewContainer"], [data-theme="dark"] [data-testid="stAppViewContainer"] { background:var(--canvas)!important; color:var(--ink)!important; }
@@ -430,6 +445,8 @@ def profile_page(u):
             else:
                 run("UPDATE users SET password_hash=? WHERE id=?", (hash_pw(new),u["id"]))
                 st.success("Password updated.")
+
+    # Sign out is available from the header profile menu, not inside the profile page.
 
 
 
@@ -841,7 +858,7 @@ def _dashboard_metrics(u):
             FROM appointments WHERE student_id=?""", (today,u["id"]))[0]
     else:
         row = all_rows("""SELECT
-            COUNT(*) FILTER (WHERE appointment_date=? AND status NOT IN ('Cancelled','Rejected')) AS upcoming,
+            COUNT(*) FILTER (WHERE appointment_date>=? AND status IN ('Scheduled','Confirmed')) AS upcoming,
             COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending,
             COUNT(*) FILTER (WHERE status='Completed') AS completed
             FROM appointments WHERE staff_id=?""", (today,u["id"]))[0]
@@ -853,21 +870,20 @@ def _dashboard_metrics(u):
 def _render_dashboard(u):
     from html import escape
     row, unread = _dashboard_metrics(u)
-    full_name = escape(str(u["full_name"]))
-    subtitle = "Your campus support overview"
+    first = escape(u["full_name"])
+    subtitle = "Your campus support overview" if u["role"] == "student" else f"{escape(u.get('department') or 'Staff')} · Your campus support overview"
 
     st.markdown(
-        f'<div class="ref-welcome"><div><h1>Good to see you, {full_name}</h1>'
-        f'<p>{subtitle}</p></div><span class="welcome-spark" aria-hidden="true">'
-        '<i></i><i></i><i></i></span></div>',
+        f'<div class="ref-welcome"><div><h1>Good to see you, {first}</h1>'
+        f'<p>{subtitle}</p></div><span class="welcome-spark">╱╱╱</span></div>',
         unsafe_allow_html=True,
     )
 
     metrics = [
-        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22M11 18h3M18 18h3M11 23h3"/></svg>', "blue"),
-        ("Pending", row["pending"], '<svg viewBox="0 0 32 32"><path d="M8 4h16M8 28h16M9 5c0 6 2 7 7 11-5 4-7 5-7 11M23 5c0 6-2 7-7 11 5 4 7 5 7 11"/></svg>', "amber"),
-        ("Completed", row["completed"], '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-9"/></svg>', "green"),
-        ("Unread updates", unread, '<svg viewBox="0 0 32 32"><path d="M7 23h18l-2-3v-6a7 7 0 0 0-14 0v6zM13 27a3 3 0 0 0 6 0"/></svg>', "violet"),
+        ("Upcoming", row["upcoming"], "🗓️", "blue"),
+        ("Pending", row["pending"], "⏳", "amber"),
+        ("Completed", row["completed"], "✓", "green"),
+        ("Unread updates", unread, "♧", "violet"),
     ]
     cols = st.columns(4, gap="small")
     for col, (label, value, symbol, tone) in zip(cols, metrics):
@@ -899,13 +915,13 @@ def _render_dashboard(u):
             created = escape(str(n.get("created_at") or ""))
             lower = title.lower()
             if "cancel" in lower or "reject" in lower:
-                tone, glyph = "red", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22m7 5 6 6m0-6-6 6"/></svg>' 
+                tone, glyph = "red", "🗓️✕"
             elif "resched" in lower or "pending" in lower:
-                tone, glyph = "amber", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22M16 17v5l4 2"/></svg>' 
+                tone, glyph = "amber", "🗓️◷"
             elif "schedule" in lower or "confirm" in lower or "approved" in lower:
-                tone, glyph = "green", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22m6 6 4 4 8-9"/></svg>' 
+                tone, glyph = "green", "🗓️✓"
             else:
-                tone, glyph = "blue", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22"/></svg>' 
+                tone, glyph = "blue", "🗓️"
             is_unread = not n["is_read"]
             with st.container(key=f"ref_notice_row_{tone}_{n['id']}"):
                 c1, c2 = st.columns([5.2, 1.0], vertical_alignment="center")
@@ -1064,7 +1080,64 @@ def apply_interface_theme(dark_mode: bool):
         [data-testid="stSidebar"] [data-testid="stButton"] button:focus:not(:active){outline:2px solid rgba(255,255,255,.55)!important}
         [data-testid="stSidebar"] [data-testid="stDivider"]{border-color:rgba(255,255,255,.24)!important}
         </style>"""
-    st.markdown(css, unsafe_allow_html=True)
+    if dark_mode:
+        control_css = """<style>
+        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
+        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
+        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
+          background:#172943!important;background-color:#172943!important;color:#F4F7FF!important;
+          -webkit-text-fill-color:#F4F7FF!important;border-color:#456080!important;caret-color:#F4F7FF!important}
+        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
+        [data-baseweb="input"] input:disabled{background:#223652!important;color:#DCE7F8!important;-webkit-text-fill-color:#DCE7F8!important;opacity:1!important}
+        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
+        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
+        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#E5EDFF!important}
+        input::placeholder,textarea::placeholder{color:#AEBED6!important;-webkit-text-fill-color:#AEBED6!important;opacity:1!important}
+        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#F4F7FF!important}
+        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#111F37!important;border-color:#365071!important}
+        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#111F37!important;border-color:#2B4164!important;color:#F4F7FF!important}
+        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#F4F7FF!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#1B3150!important;background-color:#1B3150!important;color:#F4F7FF!important;-webkit-text-fill-color:#F4F7FF!important;border:1px solid #456080!important}
+        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#29466F!important;color:#fff!important;border-color:#78A0FF!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#527BFF!important}
+        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#263750!important;color:#A9B8CF!important;-webkit-text-fill-color:#A9B8CF!important;opacity:1!important}
+        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#111F37!important;color:#F4F7FF!important;border-color:#365071!important}
+        [data-testid="stPopoverBody"] *{color:#F4F7FF!important}.profile-copy strong{color:#F4F7FF!important}.profile-copy small{color:#BDCAE0!important}
+        </style>"""
+    else:
+        control_css = """<style>
+        :root{color-scheme:light;--canvas:#f1f5ff;--surface:#ffffff;--surface-2:#eaf1ff;--ink:#10234a;--muted:#52658a;--line:#d4e1f8;--brand:#315deB;--brand-strong:#1645b8;--brand-soft:#e6efff;--shadow:0 10px 30px rgba(28,72,160,.09)}
+        [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:#f1f5ff!important;color:#10234a!important}
+        [data-testid="stHeader"]{background:rgba(241,245,255,.96)!important}
+        [data-testid="stAppViewContainer"] h1,[data-testid="stAppViewContainer"] h2,[data-testid="stAppViewContainer"] h3,[data-testid="stAppViewContainer"] p,[data-testid="stAppViewContainer"] label,[data-testid="stMarkdownContainer"]{color:#10234a}
+        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"]{background:#fff!important;border-color:#d4e1f8!important;color:#10234a!important}
+        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
+        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
+        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
+        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
+          background:#fff!important;background-color:#fff!important;color:#10234A!important;
+          -webkit-text-fill-color:#10234A!important;border-color:#C9D8F0!important;caret-color:#10234A!important}
+        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
+        [data-baseweb="input"] input:disabled{background:#EDF3FC!important;color:#52627F!important;-webkit-text-fill-color:#52627F!important;opacity:1!important}
+        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
+        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
+        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#20365F!important}
+        input::placeholder,textarea::placeholder{color:#71819B!important;-webkit-text-fill-color:#71819B!important;opacity:1!important}
+        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#10234A!important}
+        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#fff!important;border-color:#C9D8F0!important}
+        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#fff!important;border-color:#D7E2F3!important;color:#10234A!important}
+        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#20365F!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#fff!important;background-color:#fff!important;color:#1645B8!important;-webkit-text-fill-color:#1645B8!important;border:1px solid #C9D8F0!important}
+        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#EAF0FF!important;color:#1645B8!important;border-color:#7398F5!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#315DEB!important}
+        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#E7EDF6!important;color:#8492A8!important;-webkit-text-fill-color:#8492A8!important;opacity:1!important}
+        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#fff!important;color:#10234A!important;border-color:#C9D8F0!important}
+        [data-testid="stPopoverBody"] *{color:#10234A!important}.profile-copy strong{color:#10234A!important}.profile-copy small{color:#52627F!important}
+        </style>"""
+    st.markdown(css + control_css, unsafe_allow_html=True)
 
 
 
@@ -1074,7 +1147,7 @@ def apply_reference_dashboard_styles(dark_mode):
     """Reference-matched dashboard styling shared by student and staff views."""
     light_sidebar = Path(__file__).with_name("campus_sidebar_art_light.png")
     dark_sidebar = Path(__file__).with_name("campus_sidebar_art_dark.png")
-    sidebar_path = light_sidebar
+    sidebar_path = dark_sidebar if dark_mode else light_sidebar
     sidebar_bg = ""
     if sidebar_path.exists():
         sidebar_b64 = base64.b64encode(sidebar_path.read_bytes()).decode("ascii")
@@ -1148,10 +1221,6 @@ def apply_reference_dashboard_styles(dark_mode):
     [data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.08)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:318px 372px!important;background-repeat:no-repeat!important}
     [data-testid="stSidebar"]>div:first-child{width:100%!important}
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"]{background:transparent!important}
-    /* Reference-style two-button theme switch. */
-    .st-key-theme_light_button button,.st-key-theme_dark_button button{min-height:38px!important;height:38px!important;border-radius:999px!important;padding:0!important;font-size:20px!important;line-height:1!important;border:1px solid #8aa9ee!important;box-shadow:none!important}
-    .st-key-theme_light_button button[kind="primary"],.st-key-theme_dark_button button[kind="primary"]{background:#fff!important;color:#1557df!important;border-color:#7ea2ff!important;box-shadow:0 3px 12px rgba(35,85,190,.18)!important}
-    .st-key-theme_light_button button[kind="secondary"],.st-key-theme_dark_button button[kind="secondary"]{background:#8ea5d4!important;color:#fff!important}
     @media(max-width:950px){section[data-testid="stSidebar"],[data-testid="stSidebar"]{width:270px!important;min-width:270px!important;max-width:270px!important;background-size:270px 316px!important}.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
     </style>
     """
@@ -1191,21 +1260,7 @@ def apply_reference_dashboard_styles(dark_mode):
             .ref-quick-foot small{color:#c6d8f8}.ref-cap{background:#1d4178;color:#9ac3ff}
             </style>"""
         )
-
-    st.markdown(css + """
-    <style>
-    [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:#F2F6FF!important;color:#10204B!important}
-    [data-testid="stHeader"]{background:rgba(242,246,255,.94)!important}
-    [data-testid="stSidebar"]{background-color:#0D3AAE!important;background-position:center bottom!important;background-size:318px 260px!important;background-repeat:no-repeat!important}
-    .ref-welcome h1{color:#0B1744!important}
-    .welcome-spark{display:flex;align-items:flex-start;gap:5px;width:42px;margin:0 0 0 4px;padding-top:2px;transform:none}
-    .welcome-spark i{display:block;width:4px;height:22px;background:#1760F5;border-radius:4px;transform:rotate(18deg)}
-    .welcome-spark i:nth-child(2){height:31px;margin-top:-7px}
-    .welcome-spark i:nth-child(3){height:24px;margin-top:-1px}
-    .ref-metric-icon svg,.ref-notice-inline .ref-notice-icon svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-    .profile-copy strong{color:#10204B!important}.profile-copy small{color:#304B82!important}
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def main():
@@ -1226,9 +1281,6 @@ def main():
         st.rerun()
         return
     st.session_state.last_activity = now
-
-    # Fixed to the approved light reference design; theme switch removed.
-    st.session_state.app_dark_mode = False
 
     # Role-specific sidebar navigation; profile and sign-out live in the top-right menu.
     if u["role"] == "student":
@@ -1287,42 +1339,40 @@ def main():
                 st.session_state.active_page = item
                 st.rerun()
 
-    # Global header: lowered to clear Streamlit's top toolbar.
+    # Global header: clicking the profile control opens a compact menu with
+    # two explicit actions. It must not navigate until Profile is selected.
     initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
-    first_name = u["full_name"].split()[0]
     if u["role"] == "student":
-        role_label = " · ".join(str(v) for v in (u.get("course"), u.get("study_year")) if v) or "Student"
+        profile_primary = u["full_name"]
+        profile_secondary = " · ".join(part for part in [u.get("course") or "Course not set", u.get("study_year") or ""] if part)
     else:
-        role_label = str(u.get("department") or "Department not set")
-    header_full_name = __import__("html").escape(str(u["full_name"]))
-    header_subtitle = __import__("html").escape(role_label)
+        profile_primary = u["full_name"]
+        profile_secondary = u.get("department") or "Department not set"
+    profile_label = f"{initials}   {profile_primary}  ·  {profile_secondary}"
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
-    h_spacer, h_bell, h_identity, h_menu = st.columns(
-        [8.15, 0.75, 2.05, 0.45], vertical_alignment="center"
-    )
-    apply_interface_theme(False)
-    apply_reference_dashboard_styles(False)
+    h_spacer, h_bell, h_profile = st.columns([9.0, 0.8, 2.8], vertical_alignment="center")
     with h_bell:
-        if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
+        if st.button(f"🔔  {unread if unread else ''}", key="header_notifications", help="Open notifications", use_container_width=True):
             st.session_state.active_page = "Notifications"
             st.rerun()
-    with h_identity:
-        st.markdown(
-            f'<div class="profile-identity"><span class="profile-avatar">{initials}</span>'
-            f'<span class="profile-copy"><strong>{first_name}</strong><small>{role_label}</small></span></div>',
-            unsafe_allow_html=True,
-        )
-    with h_menu:
-        with st.popover("⌄", use_container_width=True):
-            st.markdown(f"**{u['full_name']}**")
-            st.caption(role_label)
+    with h_profile:
+        with st.popover(profile_label, key="header_profile_menu", icon=":material/account_circle:", use_container_width=True):
+            st.markdown(
+                f"<div class='profile-menu-identity'><span class='profile-avatar'>{initials}</span>"
+                f"<span><strong>{profile_primary}</strong><small>{profile_secondary}</small></span></div>",
+                unsafe_allow_html=True,
+            )
             st.divider()
-            if st.button("👤  Profile", use_container_width=True, key="header_profile"):
+            if st.button("Profile", key="header_menu_profile", icon=":material/person:", use_container_width=True):
                 st.session_state.active_page = "Profile"
                 st.rerun()
-            if st.button("↪  Sign out", use_container_width=True, key="header_signout"):
+            if st.button("Sign out", key="header_menu_signout", icon=":material/logout:", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
+
+    # Ensure all pages use the same approved light-blue reference palette.
+    apply_interface_theme(False)
+    apply_reference_dashboard_styles(False)
 
     page = st.session_state.active_page
     if page == "Profile":
