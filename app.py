@@ -1,4 +1,4 @@
-import os, hashlib, hmac, json
+import os, hashlib, hmac, json, base64
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -14,35 +14,67 @@ except ImportError:
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
 
 # Apple-inspired visual layer: royal blue accents, cool light-grey surfaces.
-st.markdown("""<style>
-:root { --royal:#2457D6; --royal-dark:#173EAA; --ink:#17233D; --muted:#68758D; --surface:#FFFFFF; --canvas:#F3F5F9; --line:#E3E8F1; }
+# SaaS-style visual system with theme-aware surfaces and contrast.
+_CSS = """<style>
+:root { --brand:#315DEB; --brand-strong:#2147C7; --brand-soft:#EAF0FF; --canvas:#F5F7FB; --surface:#FFFFFF; --surface-2:#EEF2F8; --ink:#171D2B; --muted:#5F6B7D; --line:#DCE3EF; --shadow:0 8px 28px rgba(22,39,75,.07); }
 html, body, [data-testid="stAppViewContainer"] { background:var(--canvas); color:var(--ink); }
-[data-testid="stHeader"] { background:rgba(243,245,249,.88); }
-.block-container { max-width:1440px; padding-top:2rem; padding-bottom:3rem; }
-[data-testid="stSidebar"] { background:#F8F9FC; border-right:1px solid var(--line); }
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 { color:var(--royal-dark); letter-spacing:-.04em; }
-[data-testid="stSidebar"] [data-testid="stRadio"] label { padding:9px 12px; border-radius:12px; }
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:#EAF0FF; }
-h1,h2,h3 { color:var(--ink); letter-spacing:-.035em; }
-h1 { font-weight:750; }
-h2,h3 { font-weight:700; }
-p, label, [data-testid="stCaptionContainer"] { color:var(--muted); }
-[data-testid="stVerticalBlockBorderWrapper"] { background:var(--surface); border:1px solid var(--line); border-radius:18px; box-shadow:0 3px 14px rgba(22,42,84,.035); }
-[data-testid="stMetric"] { background:white; border:1px solid var(--line); border-radius:16px; padding:16px 18px; }
-[data-testid="stMetricValue"] { color:var(--royal-dark); font-weight:750; }
-.stButton > button, [data-testid="stFormSubmitButton"] button { border-radius:12px; border:1px solid #D7E1F7; font-weight:650; min-height:42px; transition:all .15s ease; }
-.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--royal); border-color:var(--royal); color:white; }
-.stButton > button:hover { border-color:var(--royal); color:var(--royal-dark); transform:translateY(-1px); }
-.stButton > button[kind="primary"]:hover { background:var(--royal-dark); color:white; }
-[data-baseweb="input"] > div, [data-baseweb="select"] > div, [data-baseweb="textarea"] > div { border-radius:11px; background:white; border-color:#DCE3EF; }
-[data-testid="stTabs"] [data-baseweb="tab-list"] { gap:8px; background:#E9EDF5; padding:6px; border-radius:14px; }
-[data-testid="stTabs"] button[role="tab"] { border-radius:10px; padding:9px 16px; color:#52617A; }
-[data-testid="stTabs"] button[aria-selected="true"] { background:white; color:var(--royal-dark); box-shadow:0 1px 4px rgba(20,40,80,.08); }
-[data-testid="stExpander"] { border:1px solid var(--line); border-radius:14px; background:white; }
+[data-testid="stHeader"] { background:transparent; }
+.block-container { max-width:1500px; padding:1.6rem 2.2rem 3rem; }
+[data-testid="stSidebar"] { background:var(--surface); border-right:1px solid var(--line); }
+[data-testid="stSidebar"] > div:first-child { padding-top:1.4rem; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 { color:var(--brand-strong); letter-spacing:-.04em; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label { padding:10px 13px; border-radius:12px; margin:3px 0; color:var(--muted); }
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background:var(--brand-soft); color:var(--brand-strong); }
+h1,h2,h3,h4 { color:var(--ink); letter-spacing:-.035em; }
+h1 { font-weight:780; } h2,h3 { font-weight:720; }
+p, label, [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] { color:var(--muted); }
+[data-testid="stVerticalBlockBorderWrapper"] { background:var(--surface); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); }
+[data-testid="stMetric"] { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px 18px; }
+[data-testid="stMetricLabel"] { color:var(--muted)!important; }
+[data-testid="stMetricValue"] { color:var(--brand-strong)!important; font-weight:760; }
+.stButton > button, [data-testid="stFormSubmitButton"] button { border-radius:12px; border:1px solid var(--line); background:var(--surface); color:var(--ink); font-weight:650; min-height:42px; transition:all .15s ease; }
+.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--brand); border-color:var(--brand); color:#fff; }
+.stButton > button:hover { border-color:var(--brand); color:var(--brand-strong); transform:translateY(-1px); }
+.stButton > button[kind="primary"]:hover { background:var(--brand-strong); color:#fff; }
+[data-baseweb="input"] > div, [data-baseweb="select"] > div, [data-baseweb="textarea"] > div { border-radius:11px; background:var(--surface); border-color:var(--line); }
+input, textarea { color:var(--ink)!important; }
+[data-testid="stTabs"] [data-baseweb="tab-list"] { gap:7px; background:var(--surface-2); padding:6px; border-radius:14px; border:1px solid var(--line); }
+[data-testid="stTabs"] button[role="tab"] { border-radius:10px; padding:9px 15px; color:var(--muted); }
+[data-testid="stTabs"] button[aria-selected="true"] { background:var(--surface); color:var(--brand-strong); box-shadow:0 1px 5px rgba(20,40,80,.10); }
+[data-testid="stExpander"] { border:1px solid var(--line); border-radius:14px; background:var(--surface); }
 [data-testid="stAlert"] { border-radius:13px; }
+[data-testid="stNotification"] { border-radius:14px; }
 hr { border-color:var(--line); }
-@media (max-width: 800px) { .block-container { padding:1rem .8rem 2rem; } }
-</style>""", unsafe_allow_html=True)
+.login-hero { min-height:500px; height:100%; padding:36px; border-radius:24px; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; color:#fff; background-size:cover; background-position:center; box-shadow:0 16px 40px rgba(13,32,73,.20); position:relative; }
+.login-hero:before { content:""; position:absolute; inset:0; background:linear-gradient(180deg,rgba(9,24,54,.08) 5%,rgba(9,24,54,.18) 38%,rgba(8,22,50,.88) 100%); }
+.login-hero > * { position:relative; z-index:1; }
+.login-eyebrow { color:#DCE7FF; font-size:12px; letter-spacing:.16em; font-weight:800; }
+.login-title { color:#fff; font-size:clamp(32px,3.4vw,48px); font-weight:800; line-height:1.05; letter-spacing:-.045em; margin:12px 0; }
+.login-copy { color:#E6EDFA; font-size:16px; max-width:500px; line-height:1.6; }
+.login-pill { display:inline-block; margin:7px 6px 0 0; padding:8px 12px; border:1px solid rgba(255,255,255,.28); background:rgba(255,255,255,.15); border-radius:999px; color:#fff; font-size:12px; font-weight:650; }
+.login-card-title { color:var(--ink); font-size:26px; font-weight:780; letter-spacing:-.04em; }
+@media (max-width: 800px) { .block-container { padding:1rem .8rem 2rem; } .login-hero { min-height:300px; padding:24px; } }
+/* Streamlit's theme attribute is applied by the active app theme. Override every major surface in dark mode. */
+html[data-theme="dark"], body[data-theme="dark"], [data-theme="dark"] { --canvas:#0B1120; --surface:#121B2B; --surface-2:#1A263A; --ink:#F1F5FC; --muted:#B7C2D3; --line:#2A3950; --brand:#7394FF; --brand-strong:#9AB1FF; --brand-soft:#1D2D52; --shadow:0 8px 28px rgba(0,0,0,.22); color-scheme:dark; }
+html[data-theme="dark"] body, html[data-theme="dark"] [data-testid="stAppViewContainer"], [data-theme="dark"] [data-testid="stAppViewContainer"] { background:var(--canvas)!important; color:var(--ink)!important; }
+html[data-theme="dark"] [data-testid="stHeader"], [data-theme="dark"] [data-testid="stHeader"] { background:rgba(11,17,32,.88)!important; }
+html[data-theme="dark"] [data-testid="stSidebar"], [data-theme="dark"] [data-testid="stSidebar"] { background:var(--surface)!important; border-color:var(--line)!important; }
+html[data-theme="dark"] h1, html[data-theme="dark"] h2, html[data-theme="dark"] h3, html[data-theme="dark"] h4, html[data-theme="dark"] p, html[data-theme="dark"] label, html[data-theme="dark"] [data-testid="stMarkdownContainer"], [data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3, [data-theme="dark"] h4, [data-theme="dark"] p, [data-theme="dark"] label, [data-theme="dark"] [data-testid="stMarkdownContainer"] { color:var(--ink)!important; }
+html[data-theme="dark"] [data-testid="stCaptionContainer"], html[data-theme="dark"] [data-testid="stMetricLabel"], [data-theme="dark"] [data-testid="stCaptionContainer"], [data-theme="dark"] [data-testid="stMetricLabel"] { color:var(--muted)!important; }
+html[data-theme="dark"] [data-testid="stVerticalBlockBorderWrapper"], html[data-theme="dark"] [data-testid="stMetric"], html[data-theme="dark"] [data-testid="stExpander"], [data-theme="dark"] [data-testid="stVerticalBlockBorderWrapper"], [data-theme="dark"] [data-testid="stMetric"], [data-theme="dark"] [data-testid="stExpander"] { background:var(--surface)!important; border-color:var(--line)!important; }
+html[data-theme="dark"] [data-baseweb="input"] > div, html[data-theme="dark"] [data-baseweb="select"] > div, html[data-theme="dark"] [data-baseweb="textarea"] > div, [data-theme="dark"] [data-baseweb="input"] > div, [data-theme="dark"] [data-baseweb="select"] > div, [data-theme="dark"] [data-baseweb="textarea"] > div { background:#172338!important; border-color:var(--line)!important; }
+html[data-theme="dark"] input, html[data-theme="dark"] textarea, html[data-theme="dark"] [data-baseweb="select"] *, [data-theme="dark"] input, [data-theme="dark"] textarea, [data-theme="dark"] [data-baseweb="select"] * { color:var(--ink)!important; }
+html[data-theme="dark"] [data-testid="stTabs"] [data-baseweb="tab-list"], [data-theme="dark"] [data-testid="stTabs"] [data-baseweb="tab-list"] { background:var(--surface-2)!important; border-color:var(--line)!important; }
+html[data-theme="dark"] [data-testid="stTabs"] button[role="tab"], [data-theme="dark"] [data-testid="stTabs"] button[role="tab"] { color:var(--muted)!important; }
+html[data-theme="dark"] [data-testid="stTabs"] button[aria-selected="true"], [data-theme="dark"] [data-testid="stTabs"] button[aria-selected="true"] { background:#263858!important; color:#FFFFFF!important; }
+html[data-theme="dark"] .stButton > button, html[data-theme="dark"] [data-testid="stFormSubmitButton"] button, [data-theme="dark"] .stButton > button, [data-theme="dark"] [data-testid="stFormSubmitButton"] button { background:#1A2940; border-color:var(--line); color:var(--ink); }
+html[data-theme="dark"] .stButton > button[kind="primary"], html[data-theme="dark"] [data-testid="stFormSubmitButton"] button[kind="primary"], [data-theme="dark"] .stButton > button[kind="primary"], [data-theme="dark"] [data-testid="stFormSubmitButton"] button[kind="primary"] { background:#315DEB!important; border-color:#315DEB!important; color:#fff!important; }
+html[data-theme="dark"] hr, [data-theme="dark"] hr { border-color:var(--line)!important; }
+</style>"""
+_bg_path = Path(__file__).with_name("campus_login_bg.png")
+_bg64 = base64.b64encode(_bg_path.read_bytes()).decode("ascii") if _bg_path.exists() else ""
+_CSS = _CSS.replace("</style>", f'.login-hero {{ background-image:linear-gradient(180deg,rgba(5,18,43,.05),rgba(5,18,43,.76)),url(data:image/png;base64,{_bg64}); }}\n</style>')
+st.markdown(_CSS, unsafe_allow_html=True)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
 CAMPUS_TZ = ZoneInfo("Asia/Kolkata")
@@ -214,30 +246,20 @@ def get_user():
     return rows[0] if rows else None
 
 def login_page():
-    st.markdown("""<div style='padding:10px 0 18px'>
-      <div style='font-size:13px;font-weight:750;letter-spacing:.12em;color:#2457D6'>CAMPUS APPOINTMENT AGENT</div>
-      <div style='font-size:36px;line-height:1.12;font-weight:780;letter-spacing:-.045em;color:#17233D;margin-top:8px'>Your campus support,<br>all in one place.</div>
-      <div style='font-size:16px;color:#68758D;margin-top:10px'>Book appointments, connect with departments and keep track of every follow-up.</div>
-    </div>""", unsafe_allow_html=True)
-    left, right = st.columns([1.15, 1], gap="large")
+    left, right = st.columns([1.12, 0.88], gap="large", vertical_alignment="center")
     with left:
-        st.markdown("### A simpler way to get campus help")
-        st.write("Choose the right department, meet the right staff member and manage appointments without the back-and-forth.")
-        st.markdown("""<div style='display:flex;gap:10px;flex-wrap:wrap;margin:22px 0'>
-          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>Placement Office</span>
-          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>Academic Advisors</span>
-          <span style='background:#E8EEFF;color:#214DBA;padding:9px 13px;border-radius:999px;font-weight:650'>IT Department</span>
-        </div><div style='background:white;border:1px solid #E3E8F1;border-radius:18px;padding:20px;margin-top:28px'>
-          <div style='font-size:13px;color:#2457D6;font-weight:750;letter-spacing:.08em'>CAMPUS CONNECT</div>
-          <div style='font-size:22px;font-weight:750;color:#17233D;margin:8px 0'>Simple. Clear. Connected.</div>
-          <div style='color:#68758D'>One place to book meetings, receive updates and follow through.</div></div>""", unsafe_allow_html=True)
-        st.caption("Prototype for campus services. Not an official university system.")
+        st.markdown("""<div class="login-hero">
+          <div class="login-eyebrow">CAMPUS APPOINTMENT AGENT</div>
+          <div class="login-title">Your campus.<br>One connected place.</div>
+          <div class="login-copy">Book appointments, connect with the right department and stay updated on every step of your campus support journey.</div>
+          <div><span class="login-pill">Placement Office</span><span class="login-pill">Academic Advisors</span><span class="login-pill">IT Department</span></div>
+        </div>""", unsafe_allow_html=True)
     with right:
+        st.markdown('<div class="login-card-title">Welcome back</div>', unsafe_allow_html=True)
+        st.caption("Sign in to your campus workspace or create a student account.")
         with st.container(border=True):
             sign_in_tab, register_tab = st.tabs(["Sign in", "Create account"])
             with sign_in_tab:
-                st.subheader("Welcome back")
-                st.caption("Sign in to continue to your campus dashboard.")
                 role = st.radio("Login as", ["Student", "Staff"], horizontal=True)
                 username = st.text_input("SRN / Staff username", key="login_username")
                 password = st.text_input("Password", type="password", key="login_password")
@@ -553,7 +575,19 @@ def floating_ai_widget(u):
 @st.fragment(run_every="15s")
 def student_page(u):
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
-    st.caption("Student dashboard")
+    st.caption("Your campus support overview")
+    today = datetime.now(CAMPUS_TZ).date().isoformat()
+    summary = all_rows("""SELECT
+        COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=?) AS upcoming,
+        COUNT(*) FILTER (WHERE status='Pending') AS pending,
+        COUNT(*) FILTER (WHERE status='Completed') AS completed
+        FROM appointments WHERE student_id=?""", (today,u["id"]))[0]
+    unread_count = all_rows("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=FALSE", (u["id"],))[0]["n"]
+    metric_cols = st.columns(4)
+    for col, label, value in zip(metric_cols, ["Upcoming", "Pending", "Completed", "Unread updates"],
+                                 [summary["upcoming"], summary["pending"], summary["completed"], unread_count]):
+        with col: st.metric(label, value)
+    st.markdown("### Your workspace")
     notifications_tab, book_tab, appointments_tab, chair_tab = st.tabs(
         ["Notifications", "Book appointment", "My appointments", "Contact Chairperson"])
     with notifications_tab:
@@ -689,7 +723,18 @@ def student_page(u):
 def staff_page(u):
     is_chair = bool(u.get("is_chairperson"))
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
-    st.caption("Chairperson dashboard" if is_chair else f"{u['department']} · Staff dashboard")
+    st.caption("Chairperson overview" if is_chair else f"{u['department']} · Staff workspace")
+    staff_summary = all_rows("""SELECT
+        COUNT(*) FILTER (WHERE appointment_date=CURRENT_DATE AND status NOT IN ('Cancelled','Rejected')) AS today_count,
+        COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending_count,
+        COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=CURRENT_DATE) AS upcoming_count,
+        COUNT(*) FILTER (WHERE status='Completed') AS completed_count
+        FROM appointments WHERE staff_id=?""", (u["id"]))[0]
+    metric_cols = st.columns(4)
+    for col, label, value in zip(metric_cols, ["Today", "Pending requests", "Upcoming", "Completed"],
+                                 [staff_summary["today_count"], staff_summary["pending_count"], staff_summary["upcoming_count"], staff_summary["completed_count"]]):
+        with col: st.metric(label, value)
+    st.markdown("### Your workspace")
     if is_chair:
         tabs = st.tabs(["Student Directory", "Schedule Appointment", "Student Concerns", "Meetings"])
         directory_tab, schedule_tab, concerns_tab, meetings_tab = tabs
@@ -913,6 +958,7 @@ def main():
     st.session_state.last_activity = now
     with st.sidebar:
         st.markdown("## ◈ Campus Agent")
+        st.caption("STUDENT & STAFF WORKSPACE")
         nav_options = ["Dashboard","Profile","About"]
         page = st.radio("Workspace",nav_options)
         st.divider()
