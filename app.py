@@ -922,23 +922,24 @@ def _render_dashboard(u):
             else:
                 tone, glyph = "blue", "▣"
             is_unread = not n["is_read"]
-            c1, c2 = st.columns([5.3, 1.0], vertical_alignment="center")
-            with c1:
-                st.markdown(
-                    f'<div class="ref-notice {tone} {"is-unread" if is_unread else ""}">'
-                    f'<div class="ref-notice-icon">{glyph}</div><div class="ref-notice-content">'
-                    f'<div class="ref-notice-heading">{"<b class=ref-unread-dot></b>" if is_unread else ""}{title}</div>'
-                    f'<div class="ref-notice-message">{message}</div>'
-                    f'<div class="ref-notice-time">▦ &nbsp;{created}</div></div></div>',
-                    unsafe_allow_html=True,
-                )
-            with c2:
-                if is_unread and st.button("Mark as read", key=f"dash_mark_read_{u['id']}_{n['id']}"):
-                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"], u["id"]))
-                    st.rerun()
+            with st.container(key=f"ref_notice_row_{tone}_{n['id']}"):
+                c1, c2 = st.columns([5.2, 1.0], vertical_alignment="center")
+                with c1:
+                    st.markdown(
+                        f'<div class="ref-notice-inline">'
+                        f'<div class="ref-notice-icon">{glyph}</div><div class="ref-notice-content">'
+                        f'<div class="ref-notice-heading">{"<b class=ref-unread-dot></b>" if is_unread else ""}{title}</div>'
+                        f'<div class="ref-notice-message">{message}</div>'
+                        f'<div class="ref-notice-time">▦ &nbsp;{created}</div></div></div>',
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    if is_unread and st.button("Mark as read", key=f"dash_mark_read_{u['id']}_{n['id']}"):
+                        run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"], u["id"]))
+                        st.rerun()
 
     with right:
-        art_name = "campus_dashboard_art_dark.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art.png"
+        art_name = "campus_dashboard_art.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art_dark.png"
         art_path = Path(__file__).with_name(art_name)
         if art_path.exists():
             encoded = base64.b64encode(art_path.read_bytes()).decode("ascii")
@@ -1119,6 +1120,17 @@ def apply_reference_dashboard_styles(dark_mode):
     .ref-section-title h2{font-size:28px;font-weight:850;letter-spacing:-.035em;color:var(--ink);margin:0}
     .ref-section-title p{font-size:14px;color:var(--muted);margin:2px 0 0}
     .ref-notice{min-height:130px;display:flex;align-items:center;gap:16px;padding:15px 18px;margin:7px 0 12px;border:1px solid;border-radius:17px;background:var(--surface);box-shadow:var(--shadow)}
+    .ref-notice-inline{min-height:104px;display:flex;align-items:center;gap:16px;padding:10px 8px;background:transparent}
+    div[class*="st-key-ref_notice_row_"]{border:1px solid #9bc4ff;border-radius:17px;padding:5px 10px;margin:7px 0 12px;background:var(--surface);box-shadow:var(--shadow)}
+    div[class*="st-key-ref_notice_row_red_"]{border-color:#ff9eae;background:linear-gradient(110deg,rgba(255,235,239,.75),var(--surface))}
+    div[class*="st-key-ref_notice_row_amber_"]{border-color:#ffd17a;background:linear-gradient(110deg,rgba(255,246,226,.78),var(--surface))}
+    div[class*="st-key-ref_notice_row_green_"]{border-color:#83dfbd;background:linear-gradient(110deg,rgba(228,250,240,.8),var(--surface))}
+    div[class*="st-key-ref_notice_row_blue_"]{border-color:#9bc4ff}
+    .ref-notice-inline .ref-notice-icon{width:66px;height:66px;flex:0 0 66px;border-radius:18px;display:grid;place-items:center;font-size:32px;font-weight:800}
+    .ref-notice-inline .ref-notice-content{min-width:0;flex:1}
+    div[class*="st-key-ref_notice_row_"] [data-testid="stButton"] button{min-height:40px!important;padding:7px 12px!important;white-space:nowrap!important;border:1px solid #4e83f4!important;background:rgba(255,255,255,.72)!important;color:#1459e8!important;font-size:13px!important}
+    div[class*="st-key-ref_notice_row_"] [data-testid="stHorizontalBlock"]{gap:.5rem!important}
+
     .ref-notice.red{border-color:#ff9eae;background:linear-gradient(110deg,rgba(255,235,239,.75),var(--surface))}
     .ref-notice.amber{border-color:#ffd17a;background:linear-gradient(110deg,rgba(255,246,226,.78),var(--surface))}
     .ref-notice.green{border-color:#83dfbd;background:linear-gradient(110deg,rgba(228,250,240,.8),var(--surface))}
@@ -1139,7 +1151,7 @@ def apply_reference_dashboard_styles(dark_mode):
     .ref-quick-icon{width:58px;height:58px;flex:0 0 58px;border-radius:16px;background:#e0ecff;color:#1559dd;display:grid;place-items:center;font-size:32px}
     .ref-quick-head h2{font-size:24px;font-weight:850;letter-spacing:-.04em;color:#0c1c4d;margin:0}
     .ref-quick-head p{font-size:13px;color:#304b82;margin:2px 0 0}
-    .ref-campus-image{width:calc(100% + 34px);max-width:none;height:250px;object-fit:cover;display:block;margin:0 -17px}
+    .ref-campus-image{width:100%!important;max-width:100%!important;height:250px!important;object-fit:cover!important;display:block;margin:0!important;border:0!important;border-radius:0!important}
     .ref-quick-foot{display:flex;align-items:center;gap:12px;padding:13px 15px;margin-top:10px;border:1px solid #d1e0ff;border-radius:16px;background:rgba(255,255,255,.88);color:#10285e}
     .ref-cap{width:52px;height:52px;flex:0 0 52px;border-radius:14px;background:#dceaff;color:#1559dd;display:grid;place-items:center;font-size:27px}
     .ref-quick-foot div{flex:1}
@@ -1147,8 +1159,11 @@ def apply_reference_dashboard_styles(dark_mode):
     .ref-quick-foot small{display:block;font-size:12px;line-height:1.35;color:#38517f}
     .ref-quick-foot>b{font-size:28px;color:#1459e8}
     .ref-notice+.stHorizontalBlock{margin-top:-1px}
-    [data-testid="stSidebar"]{background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.1)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:cover!important;background-repeat:no-repeat!important}
-    @media(max-width:950px){.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
+    section[data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;flex:0 0 318px!important}
+    [data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.08)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:100% auto!important;background-repeat:no-repeat!important}
+    [data-testid="stSidebar"]>div:first-child{width:100%!important}
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"]{background:transparent!important}
+    @media(max-width:950px){section[data-testid="stSidebar"],[data-testid="stSidebar"]{width:270px!important;min-width:270px!important;max-width:270px!important}.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
     </style>
     """
     css = css.replace("SIDEBAR_IMAGE", sidebar_bg or "none")
@@ -1166,6 +1181,13 @@ def apply_reference_dashboard_styles(dark_mode):
             .ref-metric.green .ref-metric-icon{background:#174d46;color:#52e0b3}
             .ref-metric.violet .ref-metric-icon{background:#3d3473;color:#c4aaff}
             .ref-notice{background:linear-gradient(120deg,#15233d,#111f37)!important}
+            div[class*="st-key-ref_notice_row_"]{background:linear-gradient(120deg,#15233d,#111f37)!important;border-color:#45618a!important}
+            div[class*="st-key-ref_notice_row_red_"]{border-color:#bd435f!important;background:linear-gradient(110deg,#2a1c32,#111f37)!important}
+            div[class*="st-key-ref_notice_row_amber_"]{border-color:#bd852d!important;background:linear-gradient(110deg,#30291f,#111f37)!important}
+            div[class*="st-key-ref_notice_row_green_"]{border-color:#279c83!important;background:linear-gradient(110deg,#15352f,#111f37)!important}
+            div[class*="st-key-ref_notice_row_"] [data-testid="stButton"] button{background:#102c58!important;color:#fff!important;border-color:#4c83ff!important}
+            .ref-notice-inline .ref-notice-heading,.ref-notice-inline .ref-notice-message{color:#f4f7ff!important}
+            .ref-notice-inline .ref-notice-time{color:#c4d4ee!important}
             .ref-notice.red{border-color:#bd435f;background:linear-gradient(110deg,#2a1c32,#111f37)!important}
             .ref-notice.amber{border-color:#bd852d;background:linear-gradient(110deg,#30291f,#111f37)!important}
             .ref-notice.green{border-color:#279c83;background:linear-gradient(110deg,#15352f,#111f37)!important}
@@ -1261,10 +1283,6 @@ def main():
             ):
                 st.session_state.active_page = item
                 st.rerun()
-        st.markdown(
-            '<div class="sidebar-footer-note">Your campus. One connected place.</div>',
-            unsafe_allow_html=True,
-        )
 
     # Global header: lowered to clear Streamlit's top toolbar.
     initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
