@@ -6,10 +6,6 @@ import psycopg
 from psycopg.rows import dict_row
 import streamlit as st
 
-try:
-    from google import genai
-except ImportError:
-    genai = None
 
 st.set_page_config(page_title="Campus Appointment Agent", page_icon="🤖", layout="wide")
 
@@ -70,6 +66,27 @@ html[data-theme="dark"] [data-testid="stTabs"] button[aria-selected="true"], [da
 html[data-theme="dark"] .stButton > button, html[data-theme="dark"] [data-testid="stFormSubmitButton"] button, [data-theme="dark"] .stButton > button, [data-theme="dark"] [data-testid="stFormSubmitButton"] button { background:#1A2940; border-color:var(--line); color:var(--ink); }
 html[data-theme="dark"] .stButton > button[kind="primary"], html[data-theme="dark"] [data-testid="stFormSubmitButton"] button[kind="primary"], [data-theme="dark"] .stButton > button[kind="primary"], [data-theme="dark"] [data-testid="stFormSubmitButton"] button[kind="primary"] { background:#315DEB!important; border-color:#315DEB!important; color:#fff!important; }
 html[data-theme="dark"] hr, [data-theme="dark"] hr { border-color:var(--line)!important; }
+
+.brand-lockup{display:flex;align-items:center;gap:12px;padding:8px 4px 18px}
+.brand-mark{width:42px;height:42px;border-radius:13px;background:linear-gradient(145deg,#8db7ff,#fff);color:#1645b8;display:grid;place-items:center;font-size:25px;font-weight:900}
+.brand-name{font-size:20px;font-weight:800;letter-spacing:-.04em;color:var(--ink)}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:2px}
+[data-testid="stSidebar"]{background:linear-gradient(180deg,#123aa7 0%,#0d2c86 65%,#102e7c 100%)!important;border-right:0!important}
+[data-testid="stSidebar"] *{color:#fff!important}
+[data-testid="stSidebar"] [data-testid="stRadio"] label{border-radius:12px;padding:11px 13px;margin:4px 0;color:#fff!important}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked){background:linear-gradient(90deg,#3977f6,#4e83f4)!important;box-shadow:0 8px 18px rgba(0,0,0,.15)}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover{background:rgba(255,255,255,.13)!important}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,[data-testid="stSidebar"] [data-testid="stCaptionContainer"]{color:#dce7ff!important}
+.sidebar-user{padding:12px;border:1px solid rgba(255,255,255,.22);border-radius:13px;background:rgba(255,255,255,.08);font-size:13px}
+.sidebar-user span{color:#dce7ff!important;font-size:11px}
+.notification-card{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:18px 20px;margin:10px 0;box-shadow:var(--shadow)}
+.notification-card h4{margin:0 0 7px 0;font-size:16px}
+.notification-meta{font-size:12px;color:var(--muted)}
+.dashboard-heading{font-size:36px;font-weight:850;letter-spacing:-.05em;color:var(--ink);margin:8px 0 2px}
+.dashboard-subtitle{font-size:16px;color:var(--muted);margin-bottom:22px}
+.quick-panel{border:1px solid var(--line);border-radius:18px;padding:20px;background:linear-gradient(145deg,var(--surface),var(--surface-2));min-height:250px}
+@media(max-width:800px){.dashboard-heading{font-size:28px}}
+
 </style>"""
 _bg_path = Path(__file__).with_name("campus_login_bg.png")
 _bg64 = base64.b64encode(_bg_path.read_bytes()).decode("ascii") if _bg_path.exists() else ""
@@ -378,248 +395,8 @@ def free_slots(staff_id, day, exclude_appointment_id=None):
         available = [slot for slot in available if slot > current_time]
     return available
 
-@st.cache_resource(show_spinner=False)
-def gemini_client(api_key):
-    if genai is None:
-        raise RuntimeError("Gemini SDK is not installed. Check requirements.txt.")
-    return genai.Client(api_key=api_key, http_options={"timeout": 12000})
-
-def gemini_parse(message):
-    if genai is None:
-        raise RuntimeError("Gemini SDK is not installed. Check requirements.txt.")
-    try:
-        key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        key = os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY is missing from Streamlit Secrets.")
-    client = gemini_client(key)
-    prompt = f"""Today: {datetime.now(CAMPUS_TZ).date().isoformat()}. Interpret a student request for a campus appointment.
-Departments: {DEPARTMENTS}. Understand short forms like tmrw=tomorrow, appt=appointment, cncl=cancel, resched=reschedule.
-Return JSON only with keys intent (book/view/cancel/reschedule/find_department/other), department, date (new date for reschedule), time (new time), time_preference (morning/afternoon/evening), target_date (existing appointment date), target_time (existing appointment time), reason, staff_name_hint, clarifying_question, summary. Use ISO date YYYY-MM-DD and 24-hour HH:MM. Never claim an action has completed. Leave unclear fields empty.
-Student message: {message}"""
-    # Try the preferred model first, then a previously configured lightweight backup.
-    # Retry only transient capacity/rate-limit/server errors; do not waste time retrying bad requests.
-    models = ("gemini-3.8-flash", "gemini-3.1-flash-lite")
-    last_error = None
-    for model_name in models:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config={
-                        "response_mime_type": "application/json",
-                        "temperature": 0.1,
-                        "max_output_tokens": 256,
-                    },
-                )
-                result = json.loads(response.text or "{}")
-                if not isinstance(result, dict):
-                    raise ValueError("Unexpected AI response")
-                return result
-            except Exception as exc:
-                last_error = exc
-                error_text = str(exc).lower()
-                status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-                transient = (
-                    status_code in (429, 500, 502, 503, 504)
-                    or any(token in error_text for token in (
-                        "503", "unavailable", "high demand", "429", "resource_exhausted",
-                        "rate limit", "500", "502", "504", "deadline exceeded", "temporarily"
-                    ))
-                )
-                if transient and attempt == 0:
-                    time.sleep(1.2)
-                    continue
-                # A model-specific outage/access issue should allow the backup model to run.
-                break
-    raise RuntimeError(
-        "Campus AI is temporarily unavailable on both configured Gemini models. "
-        f"Last error: {type(last_error).__name__}: {str(last_error)[:250]}"
-    ) from last_error
-
-
-def stage_appointment_change(u, intent, action):
-    """Stage a cancellation/reschedule; never mutate an appointment before explicit confirmation."""
-    target_date = (intent.get("target_date") or "").strip()
-    target_time = (intent.get("target_time") or "").strip()
-    rows = all_rows("""SELECT a.*, s.full_name AS staff_name FROM appointments a
-        JOIN users s ON s.id=a.staff_id
-        WHERE a.student_id=? AND a.status IN ('Pending','Confirmed') AND a.appointment_date>=?
-        ORDER BY a.appointment_date,a.appointment_time""", (u["id"], date.today().isoformat()))
-    if target_date:
-        rows = [r for r in rows if r["appointment_date"] == target_date]
-    if target_time:
-        rows = [r for r in rows if r["appointment_time"] == target_time]
-    if not target_date and len(rows) > 1:
-        return None, "You have multiple upcoming appointments. Please include the existing appointment date (and time if needed) so I change the right one."
-    if not rows:
-        return None, "I couldn't identify a matching upcoming appointment. Please include its existing date and time. No changes were made."
-    appt = rows[0]
-    pending = {"action": action, "appointment_id": appt["id"], "department": appt["department"],
-               "staff_name": appt["staff_name"], "old_day": appt["appointment_date"],
-               "old_slot": appt["appointment_time"]}
-    if action == "reschedule":
-        new_day_text = (intent.get("date") or "").strip()
-        new_time = (intent.get("time") or "").strip()
-        preference = (intent.get("time_preference") or "").lower()
-        try:
-            new_day = date.fromisoformat(new_day_text)
-        except ValueError:
-            new_day = None
-        if not new_day or new_day < date.today():
-            return None, "What future date would you like to move it to? No changes were made."
-        if new_time and new_time not in SLOTS:
-            return None, "That time isn't in the demo schedule. Choose one of the available demo slots. No changes were made."
-        available = free_slots(appt["staff_id"], new_day.isoformat())
-        # The appointment's current slot is considered busy, so only remove it from the busy list when staying on its current date.
-        if new_day.isoformat() == appt["appointment_date"]:
-            available.append(appt["appointment_time"])
-        available = sorted(set(available))
-        if new_time:
-            available = [slot for slot in available if slot == new_time]
-        elif "morning" in preference:
-            available = [slot for slot in available if slot < "12:00"]
-        elif "afternoon" in preference:
-            available = [slot for slot in available if "12:00" <= slot < "17:00"]
-        elif "evening" in preference:
-            available = [slot for slot in available if slot >= "17:00"]
-        available = [slot for slot in available if not (new_day.isoformat() == appt["appointment_date"] and slot == appt["appointment_time"])]
-        if not available:
-            return None, "I couldn't find a free slot for that new date/time. Try another slot. No changes were made."
-        pending["new_day"] = new_day.isoformat()
-        pending["new_slot"] = available[0]
-    return pending, "Review the change below. Nothing will be changed until you confirm."
-
-def render_change_confirmation(state_key, u, button_prefix):
-    pending = st.session_state.get(state_key)
-    if not pending:
-        return
-    with st.container(border=True):
-        st.markdown("**Confirm appointment change**")
-        st.write(f"**Action:** {'Cancel' if pending['action'] == 'cancel' else 'Reschedule'}")
-        st.write(f"**Appointment:** {pending['department']} — {pending['staff_name']}")
-        st.write(f"**Current slot:** {pending['old_day']} at {pending['old_slot']}")
-        if pending['action'] == 'reschedule':
-            st.write(f"**New slot:** {pending['new_day']} at {pending['new_slot']}")
-        yes, no = st.columns(2)
-        if yes.button("Confirm change", key=f"{button_prefix}_change_yes", type="primary"):
-            try:
-                if pending["action"] == "cancel":
-                    run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')", (pending["appointment_id"], u["id"]))
-                    result_message = "Your appointment has been cancelled."
-                else:
-                    run("UPDATE appointments SET appointment_date=?,appointment_time=? WHERE id=? AND student_id=? AND status IN ('Pending','Confirmed')",
-                        (pending["new_day"], pending["new_slot"], pending["appointment_id"], u["id"]))
-                    result_message = "Your appointment has been rescheduled."
-                # Share the result with both chat interfaces so it remains visible after switching tabs.
-                st.session_state.setdefault("chat", []).append({"role":"assistant", "content":result_message})
-                st.session_state.setdefault("floating_ai_messages", []).append({"role":"assistant", "content":result_message})
-                st.session_state.pop(state_key, None)
-                st.rerun()
-            except psycopg.errors.UniqueViolation:
-                st.error("That slot was just taken. No change was made; please choose another time.")
-        if no.button("Keep appointment unchanged", key=f"{button_prefix}_change_no"):
-            st.session_state.pop(state_key, None)
-            st.rerun()
-
-def floating_ai_widget(u):
-    """Floating student-facing AI chat panel; booking requests always require confirmation."""
-    st.markdown("""
-    <style>
-    div.st-key-floating_ai_toggle {
-        position: fixed; right: 22px; bottom: 18px; z-index: 100001;
-        width: 66px; background: transparent;
-    }
-    div.st-key-floating_ai_toggle button {
-        width: 58px; height: 58px; border-radius: 50%;
-        box-shadow: 0 4px 18px rgba(0,0,0,.25);
-        font-size: 25px; padding: 0;
-    }
-    div.st-key-floating_ai_panel {
-        position: fixed; right: 22px; bottom: 88px; z-index: 100000;
-        width: min(390px, calc(100vw - 36px)); max-height: 70vh;
-        overflow-y: auto; padding: 14px; border: 1px solid rgba(128,128,128,.45);
-        border-radius: 16px; background: var(--secondary-background-color);
-        box-shadow: 0 8px 28px rgba(0,0,0,.24);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    if "floating_ai_open" not in st.session_state:
-        st.session_state.floating_ai_open = False
-    if "floating_ai_messages" not in st.session_state:
-        st.session_state.floating_ai_messages = [
-            {"role": "assistant", "content": "Hi! I can help you find campus support and understand the appointment process. Staff members schedule appointments for students."}
-        ]
-    if "floating_ai_pending" not in st.session_state:
-        st.session_state.floating_ai_pending = None
-
-    with st.container(key="floating_ai_toggle"):
-        if st.button("🤖", key="floating_ai_toggle_button", help="Open Campus AI Assistant"):
-            st.session_state.floating_ai_open = not st.session_state.floating_ai_open
-            st.rerun()
-
-    if not st.session_state.floating_ai_open:
-        return
-
-    with st.container(key="floating_ai_panel", border=True):
-        top1, top2 = st.columns([4, 1])
-        top1.markdown("### 🤖 Campus Assistant")
-        if top2.button("✕", key="floating_ai_close", help="Close chat"):
-            st.session_state.floating_ai_open = False
-            st.rerun()
-
-        for msg in st.session_state.floating_ai_messages[-8:]:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
-
-        render_change_confirmation("ai_pending_change", u, "floating_ai")
-
-        with st.form("floating_ai_message_form", clear_on_submit=True):
-            message = st.text_input("Message", placeholder="Ask to book an appointment…", label_visibility="collapsed")
-            sent = st.form_submit_button("Send", use_container_width=True)
-        if sent and message.strip():
-            st.session_state.floating_ai_messages.append({"role":"user","content":message.strip()})
-            try:
-                with st.spinner("Campus Assistant is thinking…"):
-                    intent = gemini_parse(message.strip())
-                kind = (intent.get("intent") or "other").lower()
-                answer = intent.get("summary") or "I understood your request."
-                if kind == "book":
-                    answer = "Appointments are scheduled by authorised staff. You can view scheduled meetings in My appointments or submit an issue to the Chairperson."
-                elif kind == "view":
-                    answer = "Your appointments are shown in the My appointments section of your dashboard."
-                elif kind in ("cancel", "reschedule"):
-                    answer = "Please contact the staff member or Chairperson to request a change to a staff-scheduled appointment."
-                elif kind == "find_department":
-                    department = (intent.get("department") or "").strip()
-                    if department in DEPARTMENTS:
-                        answer = (
-                            f"The relevant department is {department}. "
-                            "Please contact that office for support. Appointments are scheduled by authorised staff."
-                        )
-                    else:
-                        answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with, and I’ll point you to the right department."
-                else:
-                    answer = intent.get("clarifying_question") or "I can help you find the right campus department or explain how to contact the Chairperson. What do you need?"
-                st.session_state.floating_ai_messages.append({"role":"assistant","content":answer})
-            except Exception as exc:
-                # Keep the chat usable while surfacing the real failure for debugging.
-                error_detail = f"{type(exc).__name__}: {str(exc)[:350]}"
-                st.session_state.floating_ai_messages.append({
-                    "role": "assistant",
-                    "content": (
-                        "I couldn't reach the campus AI service just now. "
-                        "Please check the Gemini API key and model access in Streamlit Secrets. "
-                        f"\n\nTechnical detail: {error_detail}"
-                    ),
-                })
-            st.rerun()
-
 @st.fragment(run_every="15s")
-def student_page(u):
+def student_page(u, section="Book appointment"):
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Your campus support overview")
     today = datetime.now(CAMPUS_TZ).date().isoformat()
@@ -633,10 +410,7 @@ def student_page(u):
     for col, label, value in zip(metric_cols, ["Upcoming", "Pending", "Completed", "Unread updates"],
                                  [summary["upcoming"], summary["pending"], summary["completed"], unread_count]):
         with col: st.metric(label, value)
-    st.markdown("### Your workspace")
-    notifications_tab, book_tab, appointments_tab, chair_tab = st.tabs(
-        ["Notifications", "Book appointment", "My appointments", "Contact Chairperson"])
-    with notifications_tab:
+    if section == "Notifications":
         notes = unread_notifications(u["id"])
         if not notes:
             st.info("No notifications yet.")
@@ -648,7 +422,7 @@ def student_page(u):
                 if not n["is_read"] and st.button("Mark as read", key=f"read_{n['id']}"):
                     run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],u["id"]))
                     st.rerun()
-    with book_tab:
+    elif section == "Book appointment":
         st.subheader("Book an appointment")
         staff_members = all_rows("""SELECT id,full_name,department,room_no,block_name
             FROM users WHERE role='staff' AND is_active=TRUE AND is_chairperson=FALSE
@@ -686,7 +460,7 @@ def student_page(u):
                     except psycopg.errors.UniqueViolation:
                         st.error("That slot was just taken. Please select another time.")
 
-    with appointments_tab:
+    elif section == "My appointments":
         appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
           JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.created_at DESC, a.appointment_date DESC, a.appointment_time DESC""", (u["id"],))
         if not appts:
@@ -738,7 +512,7 @@ def student_page(u):
                     st.info(f"Reschedule request awaiting staff: {a.get('reschedule_date')} at {a.get('reschedule_time')}.")
                 elif a.get("reschedule_status") == "Declined":
                     st.warning("Your reschedule request was declined. The original appointment remains scheduled.")
-    with chair_tab:
+    elif section == "Contact Chairperson":
         st.write("Share an issue or query directly with the Chairperson.")
         with st.form("student_chairperson_concern"):
             subject = st.text_input("Subject")
@@ -766,7 +540,7 @@ def student_page(u):
 
 
 @st.fragment(run_every="15s")
-def staff_page(u):
+def staff_page(u, section="My Meetings"):
     is_chair = bool(u.get("is_chairperson"))
     st.title(f"Good to see you, {u['full_name'].split()[0]}")
     st.caption("Chairperson overview" if is_chair else f"{u['department']} · Staff workspace")
@@ -780,16 +554,7 @@ def staff_page(u):
     for col, label, value in zip(metric_cols, ["Today", "Pending requests", "Upcoming", "Completed"],
                                  [staff_summary["today_count"], staff_summary["pending_count"], staff_summary["upcoming_count"], staff_summary["completed_count"]]):
         with col: st.metric(label, value)
-    st.markdown("### Your workspace")
-    if is_chair:
-        tabs = st.tabs(["Student Directory", "Schedule Appointment", "Student Concerns", "Meetings"])
-        directory_tab, schedule_tab, concerns_tab, meetings_tab = tabs
-    else:
-        tabs = st.tabs(["Student Directory", "Schedule Appointment", "My Meetings"])
-        directory_tab, schedule_tab, meetings_tab = tabs
-        concerns_tab = None
-
-    with directory_tab:
+    if section == "Student Directory":
         st.subheader("Registered students")
         search = st.text_input("Search by student name or SRN", key=f"student_search_{u['id']}")
         search_term = f"%{search.strip()}%"
@@ -813,7 +578,7 @@ def staff_page(u):
                 st.write(f"**Year:** {student['study_year'] or 'Not provided'}")
                 st.write(f"**Gender:** {student['gender'] or 'Not provided'}")
 
-    with schedule_tab:
+    elif section == "Schedule Appointment":
         st.subheader("Schedule an appointment for a student")
         student_search = st.text_input("Find student by name or SRN", key=f"schedule_student_search_{u['id']}")
         students = all_rows("""SELECT id,full_name,srn,course,study_year FROM users
@@ -863,8 +628,7 @@ def staff_page(u):
                 except psycopg.errors.UniqueViolation:
                     st.error("That slot was just taken. Refresh and choose another available time.")
 
-    if is_chair and concerns_tab is not None:
-        with concerns_tab:
+    elif is_chair and section == "Student Concerns":
             st.subheader("Student issues and queries")
             concerns = all_rows("""SELECT c.*,u.full_name student_name,u.srn,u.course,u.study_year
                 FROM student_concerns c JOIN users u ON u.id=c.student_id
@@ -885,7 +649,7 @@ def staff_page(u):
                                     f"Your concern '{c['subject']}' is now {status}. {reply}")
                         st.success("Response saved and student notified."); st.rerun()
 
-    with meetings_tab:
+    elif section == "My Meetings":
         rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year
           FROM appointments a JOIN users u ON u.id=a.student_id
           WHERE a.staff_id=? ORDER BY a.created_at DESC, a.appointment_date DESC, a.appointment_time DESC""", (u["id"],))
@@ -990,38 +754,188 @@ def staff_page(u):
                         st.success("Meeting record saved."); st.rerun()
 
 
+
+def notifications_page(u):
+    st.markdown('<div class="dashboard-heading">Notifications</div><div class="dashboard-subtitle">Stay updated on appointments, requests and campus support.</div>', unsafe_allow_html=True)
+    rows = all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50", (u["id"],))
+    if not rows:
+        st.info("You're all caught up. No notifications yet.")
+        return
+    for n in rows:
+        with st.container(border=True):
+            left, right = st.columns([5, 1])
+            with left:
+                st.markdown(f"**{n['title']}**")
+                st.write(n["message"])
+                st.caption(n["created_at"])
+                if not n["is_read"]:
+                    st.caption("● Unread")
+            with right:
+                if not n["is_read"] and st.button("Mark as read", key=f"notification_read_{u['id']}_{n['id']}"):
+                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],u["id"]))
+                    st.rerun()
+
+
+def _dashboard_metrics(u):
+    today = datetime.now(CAMPUS_TZ).date().isoformat()
+    if u["role"] == "student":
+        row = all_rows("""SELECT
+            COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=?) AS upcoming,
+            COUNT(*) FILTER (WHERE status='Pending') AS pending,
+            COUNT(*) FILTER (WHERE status='Completed') AS completed
+            FROM appointments WHERE student_id=?""", (today,u["id"]))[0]
+    else:
+        row = all_rows("""SELECT
+            COUNT(*) FILTER (WHERE appointment_date=? AND status NOT IN ('Cancelled','Rejected')) AS upcoming,
+            COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending,
+            COUNT(*) FILTER (WHERE status='Completed') AS completed
+            FROM appointments WHERE staff_id=?""", (today,u["id"]))[0]
+    unread = all_rows("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=FALSE", (u["id"],))[0]["n"]
+    return row, unread
+
+
+def student_dashboard(u):
+    row, unread = _dashboard_metrics(u)
+    st.markdown(f'<div class="dashboard-heading">Good to see you, {u["full_name"].split()[0]}</div><div class="dashboard-subtitle">Your campus support overview</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    for col, label, value in zip(cols, ["Upcoming", "Pending", "Completed", "Unread updates"],
+                                 [row["upcoming"], row["pending"], row["completed"], unread]):
+        with col: st.metric(label, value)
+    st.markdown("### Notifications")
+    main_col, side_col = st.columns([2.1, 1])
+    notes = all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (u["id"],))
+    with main_col:
+        if not notes:
+            st.info("No notifications yet.")
+        for n in notes:
+            with st.container(border=True):
+                st.markdown(f"**{n['title']}**")
+                st.write(n["message"])
+                st.caption(n["created_at"])
+                if not n["is_read"] and st.button("Mark as read", key=f"dashboard_read_{n['id']}"):
+                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],))
+                    st.rerun()
+    with side_col:
+        with st.container(border=True):
+            st.markdown("### Quick overview")
+            st.write("Your campus appointments and support updates are in one place.")
+            st.write(f"**{unread}** unread updates")
+            st.write(f"**{row['upcoming']}** upcoming appointments")
+            st.write("Use the navigation panel to book a meeting or contact the Chairperson.")
+
+
+def staff_dashboard(u):
+    row, unread = _dashboard_metrics(u)
+    st.markdown(f'<div class="dashboard-heading">Good to see you, {u["full_name"].split()[0]}</div><div class="dashboard-subtitle">{u["department"] or "Staff"} · Your campus workspace</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    for col, label, value in zip(cols, ["Today", "Pending requests", "Completed", "Unread updates"],
+                                 [row["upcoming"], row["pending"], row["completed"], unread]):
+        with col: st.metric(label, value)
+    st.markdown("### Notifications")
+    main_col, side_col = st.columns([2.1, 1])
+    notes = all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (u["id"],))
+    with main_col:
+        if not notes:
+            st.info("No notifications yet.")
+        for n in notes:
+            with st.container(border=True):
+                st.markdown(f"**{n['title']}**")
+                st.write(n["message"])
+                st.caption(n["created_at"])
+                if not n["is_read"] and st.button("Mark as read", key=f"staff_dashboard_read_{n['id']}"):
+                    run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],))
+                    st.rerun()
+    with side_col:
+        with st.container(border=True):
+            st.markdown("### Quick overview")
+            st.write("Manage student requests, scheduled meetings and follow-ups.")
+            st.write(f"**{row['pending']}** pending requests")
+            st.write(f"**{unread}** unread updates")
+            st.write("Open Workspace to manage appointments and student records.")
+
+
+
 def main():
     init_db()
     if "uid" not in st.session_state:
-        login_page(); return
+        login_page()
+        return
     u = get_user()
     if not u:
-        st.session_state.clear(); st.rerun(); return
-    # Prototype-only inactivity check; production deployment needs server-side session expiry.
+        st.session_state.clear()
+        st.rerun()
+        return
+
     now = datetime.now().timestamp()
-    if now - st.session_state.get("last_activity",now) > 300:
-        st.session_state.clear(); st.warning("Signed out after inactivity. Please log in again."); st.rerun(); return
+    if now - st.session_state.get("last_activity", now) > 300:
+        st.session_state.clear()
+        st.warning("Signed out after inactivity. Please log in again.")
+        st.rerun()
+        return
     st.session_state.last_activity = now
+
+    nav_items = ["Dashboard", "Notifications", "Workspace", "Profile", "About"]
+    if u["role"] == "student":
+        nav_items = ["Dashboard", "Notifications", "Book appointment", "My appointments",
+                     "Contact Chairperson", "Profile", "About"]
+    else:
+        nav_items = ["Dashboard", "Notifications", "Student Directory", "Schedule Appointment",
+                     "My Meetings"] + (["Student Concerns"] if u.get("is_chairperson") else []) + ["Profile", "About"]
     with st.sidebar:
-        st.markdown("## ◈ Campus Agent")
-        st.caption("STUDENT & STAFF WORKSPACE")
-        nav_options = ["Dashboard","Profile","About"]
-        page = st.radio("Workspace",nav_options)
+        st.markdown(
+            '<div class="brand-lockup"><div class="brand-mark">✦</div>'
+            '<div><div class="brand-name">Campus Agent</div>'
+            '<div class="brand-sub">Campus Appointment Agent</div></div></div>',
+            unsafe_allow_html=True,
+        )
         st.divider()
-        if st.button("Sign out",use_container_width=True):
-            st.session_state.clear(); st.rerun()
-    if page == "Profile": profile_page(u)
+        unread = all_rows(
+            "SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=FALSE",
+            (u["id"],),
+        )[0]["n"]
+        labels = [f"Notifications  ·  {unread}" if x == "Notifications" and unread else x for x in nav_items]
+        if "active_page" not in st.session_state or st.session_state.get("active_user_id") != u["id"]:
+            st.session_state.active_page = "Dashboard"
+            st.session_state.active_user_id = u["id"]
+        current_label = next(
+            (lab for lab in labels if lab.split("  ·")[0] == st.session_state.active_page),
+            labels[0],
+        )
+        selected = st.radio(
+            "Navigation", labels, index=labels.index(current_label),
+            label_visibility="collapsed",
+        )
+        st.session_state.active_page = selected.split("  ·")[0]
+        st.divider()
+        role_label = u["department"] if u["role"] == "staff" else "Student"
+        st.markdown(
+            f'<div class="sidebar-user"><b>{u["full_name"]}</b><br><span>{role_label}</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        if st.button("↪  Sign out", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
+
+    page = st.session_state.active_page
+    if page == "Profile":
+        profile_page(u)
     elif page == "About":
-        st.title("About Campus Appointment Agent")
-        st.write("A prototype for campus appointment booking and student-support follow-up.")
-        st.warning("Not an official university system. Use fictional data only.")
-        st.write("Contact: xxxx@gmail.com")
-        st.write("Sushmitha Vobilini · 987xxxxx")
-        st.write("Samshitha Srikanth · 765xxxxx")
-    elif u["role"] == "student":
-        student_page(u)
-        floating_ai_widget(u)
-    else: staff_page(u)
+        st.markdown('<div class="dashboard-heading">About Campus Agent</div>', unsafe_allow_html=True)
+        st.write("A campus support workspace for appointments, department coordination and student follow-up.")
+        st.info("Prototype for demonstration. Use fictional data until formally approved by the university.")
+    elif page == "Notifications":
+        notifications_page(u)
+    elif page == "Dashboard":
+        if u["role"] == "student":
+            student_dashboard(u)
+        else:
+            staff_dashboard(u)
+    else:
+        if u["role"] == "student":
+            student_page(u, page)
+        else:
+            staff_page(u, page)
 
 
 if __name__ == "__main__":
