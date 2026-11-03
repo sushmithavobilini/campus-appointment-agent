@@ -853,20 +853,21 @@ def _dashboard_metrics(u):
 def _render_dashboard(u):
     from html import escape
     row, unread = _dashboard_metrics(u)
-    first = escape(u["full_name"].split()[0])
-    subtitle = "Your campus support overview" if u["role"] == "student" else f"{escape(u.get('department') or 'Staff')} · Your campus support overview"
+    full_name = escape(str(u["full_name"]))
+    subtitle = "Your campus support overview"
 
     st.markdown(
-        f'<div class="ref-welcome"><div><h1>Good to see you, {first}</h1>'
-        f'<p>{subtitle}</p></div><span class="welcome-spark">╱╱╱</span></div>',
+        f'<div class="ref-welcome"><div><h1>Good to see you, {full_name}</h1>'
+        f'<p>{subtitle}</p></div><span class="welcome-spark" aria-hidden="true">'
+        '<i></i><i></i><i></i></span></div>',
         unsafe_allow_html=True,
     )
 
     metrics = [
-        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], "▦", "blue"),
-        ("Pending", row["pending"], "⌛", "amber"),
-        ("Completed", row["completed"], "✓", "green"),
-        ("Unread updates", unread, "♧", "violet"),
+        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22M11 18h3M18 18h3M11 23h3"/></svg>', "blue"),
+        ("Pending", row["pending"], '<svg viewBox="0 0 32 32"><path d="M8 4h16M8 28h16M9 5c0 6 2 7 7 11-5 4-7 5-7 11M23 5c0 6-2 7-7 11 5 4 7 5 7 11"/></svg>', "amber"),
+        ("Completed", row["completed"], '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-9"/></svg>', "green"),
+        ("Unread updates", unread, '<svg viewBox="0 0 32 32"><path d="M7 23h18l-2-3v-6a7 7 0 0 0-14 0v6zM13 27a3 3 0 0 0 6 0"/></svg>', "violet"),
     ]
     cols = st.columns(4, gap="small")
     for col, (label, value, symbol, tone) in zip(cols, metrics):
@@ -898,13 +899,13 @@ def _render_dashboard(u):
             created = escape(str(n.get("created_at") or ""))
             lower = title.lower()
             if "cancel" in lower or "reject" in lower:
-                tone, glyph = "red", "▧"
+                tone, glyph = "red", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22m7 5 6 6m0-6-6 6"/></svg>' 
             elif "resched" in lower or "pending" in lower:
-                tone, glyph = "amber", "◷"
+                tone, glyph = "amber", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22M16 17v5l4 2"/></svg>' 
             elif "schedule" in lower or "confirm" in lower or "approved" in lower:
-                tone, glyph = "green", "▣"
+                tone, glyph = "green", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22m6 6 4 4 8-9"/></svg>' 
             else:
-                tone, glyph = "blue", "▣"
+                tone, glyph = "blue", '<svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="21" rx="3"/><path d="M10 4v6M22 4v6M5 13h22"/></svg>' 
             is_unread = not n["is_read"]
             with st.container(key=f"ref_notice_row_{tone}_{n['id']}"):
                 c1, c2 = st.columns([5.2, 1.0], vertical_alignment="center")
@@ -923,7 +924,7 @@ def _render_dashboard(u):
                         st.rerun()
 
     with right:
-        art_name = "campus_dashboard_art_dark.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art.png"
+        art_name = "campus_dashboard_art.png"
         art_path = Path(__file__).with_name(art_name)
         if art_path.exists():
             encoded = base64.b64encode(art_path.read_bytes()).decode("ascii")
@@ -1063,59 +1064,7 @@ def apply_interface_theme(dark_mode: bool):
         [data-testid="stSidebar"] [data-testid="stButton"] button:focus:not(:active){outline:2px solid rgba(255,255,255,.55)!important}
         [data-testid="stSidebar"] [data-testid="stDivider"]{border-color:rgba(255,255,255,.24)!important}
         </style>"""
-    if dark_mode:
-        control_css = """<style>
-        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
-        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
-        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
-        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
-        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
-          background:#172943!important;background-color:#172943!important;color:#F4F7FF!important;
-          -webkit-text-fill-color:#F4F7FF!important;border-color:#456080!important;caret-color:#F4F7FF!important}
-        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
-        [data-baseweb="input"] input:disabled{background:#223652!important;color:#DCE7F8!important;-webkit-text-fill-color:#DCE7F8!important;opacity:1!important}
-        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
-        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
-        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#E5EDFF!important}
-        input::placeholder,textarea::placeholder{color:#AEBED6!important;-webkit-text-fill-color:#AEBED6!important;opacity:1!important}
-        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#F4F7FF!important}
-        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#111F37!important;border-color:#365071!important}
-        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#111F37!important;border-color:#2B4164!important;color:#F4F7FF!important}
-        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#F4F7FF!important}
-        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#1B3150!important;background-color:#1B3150!important;color:#F4F7FF!important;-webkit-text-fill-color:#F4F7FF!important;border:1px solid #456080!important}
-        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#29466F!important;color:#fff!important;border-color:#78A0FF!important}
-        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#527BFF!important}
-        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#263750!important;color:#A9B8CF!important;-webkit-text-fill-color:#A9B8CF!important;opacity:1!important}
-        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#111F37!important;color:#F4F7FF!important;border-color:#365071!important}
-        [data-testid="stPopoverBody"] *{color:#F4F7FF!important}.profile-copy strong{color:#F4F7FF!important}.profile-copy small{color:#BDCAE0!important}
-        </style>"""
-    else:
-        control_css = """<style>
-        [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,
-        [data-testid="stNumberInput"] input,[data-testid="stDateInput"] input,
-        [data-testid="stTimeInput"] input,[data-baseweb="input"] input,
-        [data-baseweb="base-input"] input,[data-baseweb="textarea"] textarea,
-        [data-baseweb="select"]>div,[data-baseweb="datepicker"] input,[data-baseweb="calendar"]{
-          background:#fff!important;background-color:#fff!important;color:#10234A!important;
-          -webkit-text-fill-color:#10234A!important;border-color:#C9D8F0!important;caret-color:#10234A!important}
-        [data-testid="stTextInput"] input:disabled,[data-testid="stTextArea"] textarea:disabled,
-        [data-baseweb="input"] input:disabled{background:#EDF3FC!important;color:#52627F!important;-webkit-text-fill-color:#52627F!important;opacity:1!important}
-        [data-testid="stTextInput"] label,[data-testid="stTextArea"] label,[data-testid="stSelectbox"] label,
-        [data-testid="stDateInput"] label,[data-testid="stTimeInput"] label,[data-testid="stNumberInput"] label,
-        [data-testid="stMultiSelect"] label,[data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#20365F!important}
-        input::placeholder,textarea::placeholder{color:#71819B!important;-webkit-text-fill-color:#71819B!important;opacity:1!important}
-        [data-baseweb="select"] *,[data-baseweb="popover"] *,[data-baseweb="menu"] *,[role="listbox"] *,[role="option"]{color:#10234A!important}
-        [data-baseweb="popover"],[data-baseweb="menu"],[role="listbox"]{background:#fff!important;border-color:#C9D8F0!important}
-        [data-testid="stForm"],[data-testid="stForm"]>div,[data-testid="stVerticalBlockBorderWrapper"]{background:#fff!important;border-color:#D7E2F3!important;color:#10234A!important}
-        [data-testid="stForm"] label,[data-testid="stForm"] p,[data-testid="stForm"] [data-testid="stMarkdownContainer"]{color:#20365F!important}
-        .stButton>button,[data-testid="stFormSubmitButton"] button,[data-testid="stPopover"]>button{background:#fff!important;background-color:#fff!important;color:#1645B8!important;-webkit-text-fill-color:#1645B8!important;border:1px solid #C9D8F0!important}
-        .stButton>button:hover,[data-testid="stFormSubmitButton"] button:hover,[data-testid="stPopover"]>button:hover{background:#EAF0FF!important;color:#1645B8!important;border-color:#7398F5!important}
-        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315DEB!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-color:#315DEB!important}
-        .stButton>button:disabled,[data-testid="stFormSubmitButton"] button:disabled{background:#E7EDF6!important;color:#8492A8!important;-webkit-text-fill-color:#8492A8!important;opacity:1!important}
-        [data-testid="stPopoverBody"],[data-testid="stPopoverBody"]>div{background:#fff!important;color:#10234A!important;border-color:#C9D8F0!important}
-        [data-testid="stPopoverBody"] *{color:#10234A!important}.profile-copy strong{color:#10234A!important}.profile-copy small{color:#52627F!important}
-        </style>"""
-    st.markdown(css + control_css, unsafe_allow_html=True)
+    st.markdown(css, unsafe_allow_html=True)
 
 
 
@@ -1125,7 +1074,7 @@ def apply_reference_dashboard_styles(dark_mode):
     """Reference-matched dashboard styling shared by student and staff views."""
     light_sidebar = Path(__file__).with_name("campus_sidebar_art_light.png")
     dark_sidebar = Path(__file__).with_name("campus_sidebar_art_dark.png")
-    sidebar_path = dark_sidebar if dark_mode else light_sidebar
+    sidebar_path = light_sidebar
     sidebar_bg = ""
     if sidebar_path.exists():
         sidebar_b64 = base64.b64encode(sidebar_path.read_bytes()).decode("ascii")
@@ -1242,7 +1191,21 @@ def apply_reference_dashboard_styles(dark_mode):
             .ref-quick-foot small{color:#c6d8f8}.ref-cap{background:#1d4178;color:#9ac3ff}
             </style>"""
         )
-    st.markdown(css, unsafe_allow_html=True)
+
+    st.markdown(css + """
+    <style>
+    [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:#F2F6FF!important;color:#10204B!important}
+    [data-testid="stHeader"]{background:rgba(242,246,255,.94)!important}
+    [data-testid="stSidebar"]{background-color:#0D3AAE!important;background-position:center bottom!important;background-size:318px 260px!important;background-repeat:no-repeat!important}
+    .ref-welcome h1{color:#0B1744!important}
+    .welcome-spark{display:flex;align-items:flex-start;gap:5px;width:42px;margin:0 0 0 4px;padding-top:2px;transform:none}
+    .welcome-spark i{display:block;width:4px;height:22px;background:#1760F5;border-radius:4px;transform:rotate(18deg)}
+    .welcome-spark i:nth-child(2){height:31px;margin-top:-7px}
+    .welcome-spark i:nth-child(3){height:24px;margin-top:-1px}
+    .ref-metric-icon svg,.ref-notice-inline .ref-notice-icon svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+    .profile-copy strong{color:#10204B!important}.profile-copy small{color:#304B82!important}
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def main():
@@ -1264,8 +1227,8 @@ def main():
         return
     st.session_state.last_activity = now
 
-    if "app_dark_mode" not in st.session_state:
-        st.session_state.app_dark_mode = False
+    # Fixed to the approved light reference design; theme switch removed.
+    st.session_state.app_dark_mode = False
 
     # Role-specific sidebar navigation; profile and sign-out live in the top-right menu.
     if u["role"] == "student":
@@ -1328,29 +1291,17 @@ def main():
     initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
     first_name = u["full_name"].split()[0]
     if u["role"] == "student":
-        profile_primary = u["full_name"]
-        profile_secondary = " · ".join(part for part in [u.get("course") or "Course not set", u.get("study_year") or ""] if part)
+        role_label = " · ".join(str(v) for v in (u.get("course"), u.get("study_year")) if v) or "Student"
     else:
-        profile_primary = u["full_name"]
-        profile_secondary = u.get("department") or "Department not set"
-    profile_primary_html = __import__("html").escape(str(profile_primary))
-    profile_secondary_html = __import__("html").escape(str(profile_secondary))
+        role_label = str(u.get("department") or "Department not set")
+    header_full_name = __import__("html").escape(str(u["full_name"]))
+    header_subtitle = __import__("html").escape(role_label)
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
-    h_spacer, h_theme, h_bell, h_identity, h_menu = st.columns(
-        [7.0, 1.15, 0.75, 2.05, 0.45], vertical_alignment="center"
+    h_spacer, h_bell, h_identity, h_menu = st.columns(
+        [8.15, 0.75, 2.05, 0.45], vertical_alignment="center"
     )
-    with h_theme:
-        sun_col, moon_col = st.columns(2, gap="small")
-        with sun_col:
-            if st.button("☀", key="theme_light_button", type="primary" if not st.session_state.app_dark_mode else "secondary", help="Light mode", use_container_width=True):
-                st.session_state.app_dark_mode = False
-                st.rerun()
-        with moon_col:
-            if st.button("☾", key="theme_dark_button", type="primary" if st.session_state.app_dark_mode else "secondary", help="Dark mode", use_container_width=True):
-                st.session_state.app_dark_mode = True
-                st.rerun()
-    apply_interface_theme(st.session_state.app_dark_mode)
-    apply_reference_dashboard_styles(st.session_state.app_dark_mode)
+    apply_interface_theme(False)
+    apply_reference_dashboard_styles(False)
     with h_bell:
         if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
             st.session_state.active_page = "Notifications"
@@ -1358,13 +1309,13 @@ def main():
     with h_identity:
         st.markdown(
             f'<div class="profile-identity"><span class="profile-avatar">{initials}</span>'
-            f'<span class="profile-copy"><strong>{profile_primary_html}</strong><small>{profile_secondary_html}</small></span></div>',
+            f'<span class="profile-copy"><strong>{first_name}</strong><small>{role_label}</small></span></div>',
             unsafe_allow_html=True,
         )
     with h_menu:
         with st.popover("⌄", use_container_width=True):
             st.markdown(f"**{u['full_name']}**")
-            st.caption(profile_secondary)
+            st.caption(role_label)
             st.divider()
             if st.button("👤  Profile", use_container_width=True, key="header_profile"):
                 st.session_state.active_page = "Profile"
