@@ -469,19 +469,14 @@ def free_slots(staff_id, day, exclude_appointment_id=None):
     return available
 
 def student_page(u, section="Book appointment"):
-    st.title(f"Good to see you, {u['full_name'].split()[0]}")
-    st.caption("Your campus support overview")
-    today = datetime.now(CAMPUS_TZ).date().isoformat()
-    summary = all_rows("""SELECT
-        COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=?) AS upcoming,
-        COUNT(*) FILTER (WHERE status='Pending') AS pending,
-        COUNT(*) FILTER (WHERE status='Completed') AS completed
-        FROM appointments WHERE student_id=?""", (today,u["id"]))[0]
-    unread_count = all_rows("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=FALSE", (u["id"],))[0]["n"]
-    metric_cols = st.columns(4)
-    for col, label, value in zip(metric_cols, ["Upcoming", "Pending", "Completed", "Unread updates"],
-                                 [summary["upcoming"], summary["pending"], summary["completed"], unread_count]):
-        with col: st.metric(label, value)
+    # Summary cards are reserved for the Dashboard only.
+    page_titles = {
+        "Book appointment": "Book an appointment",
+        "My appointments": "My appointments",
+        "Contact Chairperson": "Contact Chairperson",
+        "Notifications": "Notifications",
+    }
+    st.title(page_titles.get(section, section))
     if section == "Notifications":
         notes = unread_notifications(u["id"])
         if not notes:
@@ -612,19 +607,8 @@ def student_page(u, section="Book appointment"):
 
 
 def staff_page(u, section="My Meetings"):
-    is_chair = bool(u.get("is_chairperson"))
-    st.title(f"Good to see you, {u['full_name'].split()[0]}")
-    st.caption("Chairperson overview" if is_chair else f"{u['department']} · Staff workspace")
-    staff_summary = all_rows("""SELECT
-        COUNT(*) FILTER (WHERE appointment_date=CURRENT_DATE::text AND status NOT IN ('Cancelled','Rejected')) AS today_count,
-        COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending_count,
-        COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=CURRENT_DATE::text) AS upcoming_count,
-        COUNT(*) FILTER (WHERE status='Completed') AS completed_count
-        FROM appointments WHERE staff_id=?""", (u["id"],))[0]
-    metric_cols = st.columns(4)
-    for col, label, value in zip(metric_cols, ["Today", "Pending requests", "Upcoming", "Completed"],
-                                 [staff_summary["today_count"], staff_summary["pending_count"], staff_summary["upcoming_count"], staff_summary["completed_count"]]):
-        with col: st.metric(label, value)
+    # Summary cards are reserved for the Dashboard only.
+    st.title(section)
     if section == "Student Directory":
         st.subheader("Registered students")
         search = st.text_input("Search by student name or SRN", key=f"student_search_{u['id']}")
@@ -1089,7 +1073,7 @@ def apply_reference_dashboard_styles(dark_mode):
     """Reference-matched dashboard styling shared by student and staff views."""
     light_sidebar = Path(__file__).with_name("campus_sidebar_art_light.png")
     dark_sidebar = Path(__file__).with_name("campus_sidebar_art_dark.png")
-    sidebar_path = dark_sidebar if dark_mode else light_sidebar
+    sidebar_path = light_sidebar
     sidebar_bg = ""
     if sidebar_path.exists():
         sidebar_b64 = base64.b64encode(sidebar_path.read_bytes()).decode("ascii")
@@ -1160,10 +1144,14 @@ def apply_reference_dashboard_styles(dark_mode):
     .ref-quick-foot>b{font-size:28px;color:#1459e8}
     .ref-notice+.stHorizontalBlock{margin-top:-1px}
     section[data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;flex:0 0 318px!important}
-    [data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.08)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:100% auto!important;background-repeat:no-repeat!important}
+    [data-testid="stSidebar"]{width:318px!important;min-width:318px!important;max-width:318px!important;background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.08)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:318px 372px!important;background-repeat:no-repeat!important}
     [data-testid="stSidebar"]>div:first-child{width:100%!important}
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"]{background:transparent!important}
-    @media(max-width:950px){section[data-testid="stSidebar"],[data-testid="stSidebar"]{width:270px!important;min-width:270px!important;max-width:270px!important}.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
+    /* Reference-style two-button theme switch. */
+    .st-key-theme_light_button button,.st-key-theme_dark_button button{min-height:38px!important;height:38px!important;border-radius:999px!important;padding:0!important;font-size:20px!important;line-height:1!important;border:1px solid #8aa9ee!important;box-shadow:none!important}
+    .st-key-theme_light_button button[kind="primary"],.st-key-theme_dark_button button[kind="primary"]{background:#fff!important;color:#1557df!important;border-color:#7ea2ff!important;box-shadow:0 3px 12px rgba(35,85,190,.18)!important}
+    .st-key-theme_light_button button[kind="secondary"],.st-key-theme_dark_button button[kind="secondary"]{background:#8ea5d4!important;color:#fff!important}
+    @media(max-width:950px){section[data-testid="stSidebar"],[data-testid="stSidebar"]{width:270px!important;min-width:270px!important;max-width:270px!important;background-size:270px 316px!important}.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
     </style>
     """
     css = css.replace("SIDEBAR_IMAGE", sidebar_bg or "none")
@@ -1293,7 +1281,15 @@ def main():
         [7.0, 1.15, 0.75, 2.05, 0.45], vertical_alignment="center"
     )
     with h_theme:
-        st.toggle("☀️ / 🌙", key="app_dark_mode", help="Switch between light and dark appearance")
+        sun_col, moon_col = st.columns(2, gap="small")
+        with sun_col:
+            if st.button("☀", key="theme_light_button", type="primary" if not st.session_state.app_dark_mode else "secondary", help="Light mode", use_container_width=True):
+                st.session_state.app_dark_mode = False
+                st.rerun()
+        with moon_col:
+            if st.button("☾", key="theme_dark_button", type="primary" if st.session_state.app_dark_mode else "secondary", help="Dark mode", use_container_width=True):
+                st.session_state.app_dark_mode = True
+                st.rerun()
     apply_interface_theme(st.session_state.app_dark_mode)
     apply_reference_dashboard_styles(st.session_state.app_dark_mode)
     with h_bell:
