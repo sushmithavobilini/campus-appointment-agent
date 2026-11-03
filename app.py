@@ -729,7 +729,7 @@ def staff_page(u):
         COUNT(*) FILTER (WHERE status='Pending' AND booking_source='student') AS pending_count,
         COUNT(*) FILTER (WHERE status IN ('Scheduled','Confirmed') AND appointment_date>=CURRENT_DATE) AS upcoming_count,
         COUNT(*) FILTER (WHERE status='Completed') AS completed_count
-        FROM appointments WHERE staff_id=?""", (u["id"]))[0]
+        FROM appointments WHERE staff_id=?""", (u["id"],))[0]
     metric_cols = st.columns(4)
     for col, label, value in zip(metric_cols, ["Today", "Pending requests", "Upcoming", "Completed"],
                                  [staff_summary["today_count"], staff_summary["pending_count"], staff_summary["upcoming_count"], staff_summary["completed_count"]]):
