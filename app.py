@@ -289,10 +289,15 @@ def unread_notifications(user_id):
     return all_rows("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 10", (user_id,))
 
 
-def free_slots(staff_id, day):
-    """Return slots that are not booked and have not already started (campus local time)."""
-    busy = {r["appointment_time"] for r in all_rows("""SELECT appointment_time FROM appointments
-      WHERE staff_id=? AND appointment_date=? AND status NOT IN ('Cancelled','Rejected')""", (staff_id,day))}
+def free_slots(staff_id, day, exclude_appointment_id=None):
+    """Return unbooked future slots, optionally ignoring the appointment being rescheduled."""
+    sql = """SELECT appointment_time FROM appointments
+      WHERE staff_id=? AND appointment_date=? AND status NOT IN ('Cancelled','Rejected')"""
+    args = [staff_id, day]
+    if exclude_appointment_id is not None:
+        sql += " AND id<>?"
+        args.append(exclude_appointment_id)
+    busy = {r["appointment_time"] for r in all_rows(sql, tuple(args))}
     available = [slot for slot in SLOTS if slot not in busy]
     try:
         selected_day = date.fromisoformat(str(day))
@@ -560,7 +565,7 @@ def student_page(u):
 
     with appointments_tab:
         appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
-          JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+          JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.created_at DESC, a.appointment_date DESC, a.appointment_time DESC""", (u["id"],))
         if not appts:
             st.info("No appointments have been scheduled for you yet.")
         for a in appts:
@@ -749,7 +754,7 @@ def staff_page(u):
     with meetings_tab:
         rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year
           FROM appointments a JOIN users u ON u.id=a.student_id
-          WHERE a.staff_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
+          WHERE a.staff_id=? ORDER BY a.created_at DESC, a.appointment_date DESC, a.appointment_time DESC""", (u["id"],))
         if not rows:
             st.info("No meetings scheduled yet.")
         for a in rows:
@@ -759,6 +764,46 @@ def staff_page(u):
                 st.write(f"{a['course'] or ''} · {a['study_year'] or ''}")
                 st.write(f"Location: {u['room_no'] or 'TBC'}, {u['block_name'] or 'TBC'}")
                 st.write(f"Purpose: {a['reason']}")
+                if a.get("booking_source") == "staff" and a["status"] in ("Scheduled", "Confirmed"):
+                    with st.expander("Manage this appointment"):
+                        if st.button("Cancel appointment", key=f"staff_cancel_created_{a['id']}"):
+                            run("""UPDATE appointments SET status='Cancelled'
+                                WHERE id=? AND staff_id=? AND booking_source='staff'
+                                AND status IN ('Scheduled','Confirmed')""", (a["id"],u["id"]))
+                            notify_user(a["student_id"], "Appointment cancelled by staff",
+                                f"Your appointment with {u['full_name']} on {a['appointment_date']} at {a['appointment_time']} has been cancelled.")
+                            st.success("Appointment cancelled and student notified.")
+                            st.rerun()
+                        with st.form(f"staff_reschedule_created_{a['id']}"):
+                            staff_new_day = st.date_input("New appointment date",
+                                min_value=datetime.now(CAMPUS_TZ).date(),
+                                value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1),
+                                key=f"staff_new_day_{a['id']}")
+                            staff_new_slots = free_slots(u["id"], staff_new_day.isoformat(),
+                                exclude_appointment_id=a["id"])
+                            staff_new_time = st.selectbox("New available time",
+                                staff_new_slots if staff_new_slots else ["No slots available"],
+                                key=f"staff_new_time_{a['id']}_{staff_new_day.isoformat()}")
+                            staff_change_reason = st.text_area("Reason for changing appointment",
+                                key=f"staff_change_reason_{a['id']}")
+                            staff_reschedule_submit = st.form_submit_button(
+                                "Save new appointment time", disabled=not staff_new_slots)
+                        if staff_reschedule_submit:
+                            try:
+                                run("""UPDATE appointments SET appointment_date=?,appointment_time=?,
+                                    reason=CASE WHEN ?='' THEN reason ELSE reason || ' | Update: ' || ? END
+                                    WHERE id=? AND staff_id=? AND booking_source='staff'
+                                    AND status IN ('Scheduled','Confirmed')""",
+                                    (staff_new_day.isoformat(),staff_new_time,staff_change_reason.strip(),
+                                     staff_change_reason.strip(),a["id"],u["id"]))
+                                notify_user(a["student_id"], "Appointment rescheduled by staff",
+                                    f"Your appointment has been moved to {staff_new_day.isoformat()} at {staff_new_time}. "
+                                    f"Location: {u['room_no'] or 'TBC'}, {u['block_name'] or 'TBC'}. "
+                                    f"{('Reason: ' + staff_change_reason.strip()) if staff_change_reason.strip() else ''}")
+                                st.success("Appointment rescheduled and student notified.")
+                                st.rerun()
+                            except psycopg.errors.UniqueViolation:
+                                st.error("That time slot is no longer available. The original appointment remains unchanged.")
                 if a.get("booking_source") == "student" and a["status"] == "Pending":
                     st.warning("Student booking request — awaiting your decision.")
                     c1, c2 = st.columns(2)
