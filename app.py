@@ -400,7 +400,7 @@ Return JSON only with keys intent (book/view/cancel/reschedule/find_department/o
 Student message: {message}"""
     # One lightweight request only; avoid sequential fallback calls that double the wait.
     response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
+        model="gemini-3.8-flash",
         contents=prompt,
         config={"response_mime_type": "application/json", "temperature": 0.1, "max_output_tokens": 256},
     )
@@ -564,12 +564,28 @@ def floating_ai_widget(u):
                 elif kind in ("cancel", "reschedule"):
                     answer = "Please contact the staff member or Chairperson to request a change to a staff-scheduled appointment."
                 elif kind == "find_department":
-                    answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with."
+                    department = (intent.get("department") or "").strip()
+                    if department in DEPARTMENTS:
+                        answer = (
+                            f"The relevant department is {department}. "
+                            "Please contact that office for support. Appointments are scheduled by authorised staff."
+                        )
+                    else:
+                        answer = intent.get("clarifying_question") or "Tell me briefly what issue you need help with, and I’ll point you to the right department."
                 else:
                     answer = intent.get("clarifying_question") or "I can help you find the right campus department or explain how to contact the Chairperson. What do you need?"
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":answer})
-            except Exception:
-                st.session_state.floating_ai_messages.append({"role":"assistant","content":"Sorry, I could not process that request. Please try again shortly, or contact the relevant department."})
+            except Exception as exc:
+                # Keep the chat usable while surfacing the real failure for debugging.
+                error_detail = f"{type(exc).__name__}: {str(exc)[:350]}"
+                st.session_state.floating_ai_messages.append({
+                    "role": "assistant",
+                    "content": (
+                        "I couldn't reach the campus AI service just now. "
+                        "Please check the Gemini API key and model access in Streamlit Secrets. "
+                        f"\n\nTechnical detail: {error_detail}"
+                    ),
+                })
             st.rerun()
 
 @st.fragment(run_every="15s")
