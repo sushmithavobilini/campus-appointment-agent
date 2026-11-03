@@ -124,7 +124,26 @@ html[data-theme="dark"] hr, [data-theme="dark"] hr { border-color:var(--line)!im
 [data-theme="dark"] .quick-card-foot span{color:#c5d7fa}
 @media(max-width:900px){.block-container{padding:1rem .8rem 2rem}.dashboard-heading{font-size:29px}}
 
-</style>"""
+
+.block-container{max-width:1600px;padding:1.15rem 1.65rem 2.5rem}
+[data-testid="stSidebar"]{width:285px!important;background:linear-gradient(180deg,#173fb4 0%,#10318e 58%,#0b286f 100%)!important;border-right:0!important}
+[data-testid="stSidebar"]>div:first-child{padding:1.15rem 1rem 1rem}
+.brand-lockup{padding:10px 5px 20px;gap:13px}
+.brand-mark{width:48px;height:48px;border-radius:15px;background:linear-gradient(145deg,#fff,#c6dcff)!important;color:#1744b8!important;display:grid;place-items:center;font-size:27px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.brand-name{font-size:22px!important;color:#fff!important}
+.brand-sub{font-size:11px;color:#e0eaff!important}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,[data-testid="stSidebar"] [data-testid="stCaptionContainer"]{color:#dce7ff!important}
+[data-testid="stSidebar"] [data-testid="stRadio"] label{padding:11px 13px;border-radius:12px;margin:4px 0;color:#fff!important}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked){background:linear-gradient(90deg,#3977f6,#4e83f4)!important;box-shadow:0 8px 18px rgba(0,0,0,.15)}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover{background:rgba(255,255,255,.14)!important}
+.sidebar-footer-note{position:relative;margin-top:30px;padding:16px 7px 0;border-top:1px solid rgba(255,255,255,.22);font-size:12px;color:#dce7ff}
+[data-testid="stPopover"] button{border-radius:14px!important}
+[data-testid="stPopoverBody"]{min-width:220px}
+[data-testid="stHorizontalBlock"]{align-items:center}
+.stButton>button{transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+.stButton>button:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(34,80,170,.12)}
+.quick-card{min-height:420px}
+@media(max-width:900px){.block-container{padding:.9rem .75rem 2rem}.brand-name{font-size:19px!important}}"""
 _bg_path = Path(__file__).with_name("campus_login_bg.png")
 _bg64 = base64.b64encode(_bg_path.read_bytes()).decode("ascii") if _bg_path.exists() else ""
 _CSS = _CSS.replace("</style>", f'.login-hero {{ background-image:linear-gradient(180deg,rgba(5,18,43,.05),rgba(5,18,43,.76)),url(data:image/png;base64,{_bg64}); }}\n</style>')
@@ -836,9 +855,7 @@ def _render_dashboard(u):
     subtitle = "Your campus support overview" if u["role"] == "student" else f"{u.get('department') or 'Staff'} · Your campus workspace"
     st.markdown(
         f'<div class="dashboard-topline"><div><div class="dashboard-heading">Good to see you, {first}</div>'
-        f'<div class="dashboard-subtitle">{subtitle}</div></div>'
-        f'<div style="text-align:right;font-weight:750;color:var(--ink)">{first}<br>'
-        f'<span style="font-size:12px;color:var(--muted);font-weight:500">{"Student" if u["role"]=="student" else "Staff"}</span></div></div>',
+        f'<div class="dashboard-subtitle">{subtitle}</div></div></div>',
         unsafe_allow_html=True,
     )
 
@@ -919,6 +936,49 @@ def staff_dashboard(u):
     _render_dashboard(u)
 
 
+
+def apply_interface_theme(dark_mode: bool):
+    """Apply the app's own complete colour palette, independent of browser settings."""
+    if dark_mode:
+        css = """
+        <style>
+        :root{color-scheme:dark;--canvas:#0b1428;--surface:#111f37;--surface-2:#1a2b49;--ink:#f4f7ff;--muted:#bdc9df;--line:#2b4164;--brand:#78a0ff;--brand-strong:#a9c1ff;--brand-soft:#1c3157;--shadow:0 10px 28px rgba(0,0,0,.28)}
+        [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:var(--canvas)!important;color:var(--ink)!important}
+        [data-testid="stHeader"]{background:rgba(11,20,40,.94)!important}
+        h1,h2,h3,h4,h5,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],[data-testid="stMetricLabel"],.dashboard-heading,.notification-title{color:var(--ink)!important}
+        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time,.notification-meta{color:var(--muted)!important}
+        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item,.notification-card,.quick-panel{background:var(--surface)!important;border-color:var(--line)!important;color:var(--ink)!important}
+        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#172943!important;border-color:var(--line)!important}
+        input,textarea,[data-baseweb="select"] *{color:var(--ink)!important}
+        [data-testid="stTabs"] [data-baseweb="tab-list"]{background:var(--surface-2)!important;border-color:var(--line)!important}
+        [data-testid="stTabs"] button[role="tab"]{color:var(--muted)!important}
+        [data-testid="stTabs"] button[aria-selected="true"]{background:#29466f!important;color:#fff!important}
+        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#1b3150!important;border-color:#365071!important;color:var(--ink)!important}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deb!important;color:#fff!important}
+        .quick-card{background:linear-gradient(145deg,#182b4b,#213b66)!important;border-color:#3b5b8c!important}
+        .quick-card-head h3{color:#f4f7ff!important}.quick-card-head p{color:#c5d7fa!important}
+        .quick-card-foot{background:rgba(10,20,40,.92)!important;color:#f4f7ff!important}
+        .quick-card-foot span{color:#c5d7fa!important}
+        hr{border-color:var(--line)!important}
+        </style>"""
+    else:
+        css = """
+        <style>
+        :root{color-scheme:light;--canvas:#f3f6fc;--surface:#fff;--surface-2:#edf3fc;--ink:#101d3d;--muted:#52627f;--line:#d7e2f3;--brand:#315deb;--brand-strong:#1645b8;--brand-soft:#eaf0ff;--shadow:0 10px 28px rgba(20,45,100,.07)}
+        [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:var(--canvas)!important;color:var(--ink)!important}
+        [data-testid="stHeader"]{background:rgba(243,246,252,.94)!important}
+        h1,h2,h3,h4,h5,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],[data-testid="stMetricLabel"],.dashboard-heading,.notification-title{color:var(--ink)}
+        [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time,.notification-meta{color:var(--muted)}
+        [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item,.notification-card,.quick-panel{background:var(--surface);border-color:var(--line);color:var(--ink)}
+        [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"]>div{background:#fff;border-color:var(--line)}
+        input,textarea,[data-baseweb="select"] *{color:var(--ink)}
+        .stButton>button,[data-testid="stFormSubmitButton"] button{background:#fff;border-color:var(--line);color:var(--ink)}
+        .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deb;color:#fff}
+        </style>"""
+    st.markdown(css, unsafe_allow_html=True)
+
+
+
 def main():
     init_db()
     if "uid" not in st.session_state:
@@ -938,16 +998,23 @@ def main():
         return
     st.session_state.last_activity = now
 
-    nav_items = ["Dashboard", "Notifications", "Workspace", "Profile", "About"]
+    if "app_dark_mode" not in st.session_state:
+        st.session_state.app_dark_mode = False
+
+    # Role-specific sidebar navigation; profile and sign-out live in the top-right menu.
     if u["role"] == "student":
-        nav_items = ["Dashboard", "Notifications", "Book appointment", "My appointments",
-                     "Contact Chairperson", "Profile", "About"]
+        nav_items = ["Dashboard", "Notifications", "Book appointment",
+                     "My appointments", "Contact Chairperson", "About"]
     else:
-        nav_items = ["Dashboard", "Notifications", "Student Directory", "Schedule Appointment",
-                     "My Meetings"] + (["Student Concerns"] if u.get("is_chairperson") else []) + ["Profile", "About"]
+        nav_items = ["Dashboard", "Notifications", "Student Directory",
+                     "Schedule Appointment", "My Meetings"]
+        if u.get("is_chairperson"):
+            nav_items.append("Student Concerns")
+        nav_items.append("About")
+
     with st.sidebar:
         st.markdown(
-            '<div class="brand-lockup"><div class="brand-mark">✦</div>'
+            '<div class="brand-lockup"><div class="brand-mark">🎓</div>'
             '<div><div class="brand-name">Campus Agent</div>'
             '<div class="brand-sub">Campus Appointment Agent</div></div></div>',
             unsafe_allow_html=True,
@@ -969,17 +1036,36 @@ def main():
             "Navigation", labels, index=labels.index(current_label),
             label_visibility="collapsed",
         )
-        st.session_state.active_page = selected.split("  ·")[0]
-        st.divider()
-        role_label = u["department"] if u["role"] == "staff" else "Student"
+        # Profile is intentionally not a sidebar item; keep it active while its dropdown page is open.
+        if st.session_state.active_page != "Profile":
+            st.session_state.active_page = selected.split("  ·")[0]
         st.markdown(
-            f'<div class="sidebar-user"><b>{u["full_name"]}</b><br><span>{role_label}</span></div>',
+            '<div class="sidebar-footer-note">Your campus. One connected place.</div>',
             unsafe_allow_html=True,
         )
-        st.write("")
-        if st.button("↪  Sign out", use_container_width=True):
-            st.session_state.clear()
+
+    # Global header: theme switch, notification shortcut and account dropdown.
+    initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
+    role_label = "Student" if u["role"] == "student" else (u.get("department") or "Staff")
+    h_spacer, h_theme, h_bell, h_profile = st.columns([7.2, 1.15, 1.0, 2.2], vertical_alignment="center")
+    with h_theme:
+        st.toggle("☀️ / 🌙", key="app_dark_mode", help="Switch between light and dark appearance")
+    apply_interface_theme(st.session_state.app_dark_mode)
+    with h_bell:
+        if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
+            st.session_state.active_page = "Notifications"
             st.rerun()
+    with h_profile:
+        with st.popover(f"🔵 {initials}  {u['full_name'].split()[0]}  ▾", use_container_width=True):
+            st.markdown(f"**{u['full_name']}**")
+            st.caption(role_label)
+            st.divider()
+            if st.button("👤  Profile", use_container_width=True, key="header_profile"):
+                st.session_state.active_page = "Profile"
+                st.rerun()
+            if st.button("↪  Sign out", use_container_width=True, key="header_signout"):
+                st.session_state.clear()
+                st.rerun()
 
     page = st.session_state.active_page
     if page == "Profile":
