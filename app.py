@@ -143,10 +143,20 @@ html[data-theme="dark"] hr, [data-theme="dark"] hr { border-color:var(--line)!im
 .stButton>button{transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
 .stButton>button:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(34,80,170,.12)}
 .quick-card{min-height:420px}
-@media(max-width:900px){.block-container{padding:.9rem .75rem 2rem}.brand-name{font-size:19px!important}}"""
+.login-hero{position:relative!important;isolation:isolate!important;background-image:none!important}
+.login-hero .login-bg-image{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;object-fit:cover!important;z-index:0!important;border-radius:24px!important}
+.login-hero:before{z-index:1!important}
+.login-hero > *:not(.login-bg-image){position:relative!important;z-index:2!important}
+.header-clearance{height:66px!important;margin-bottom:-66px!important}
+.profile-identity{display:flex!important;align-items:center!important;gap:10px!important;min-height:48px!important}
+.profile-avatar{width:42px!important;height:42px!important;border-radius:50%!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;background:linear-gradient(145deg,#4e7cff,#1745d5)!important;color:#fff!important;font-size:17px!important;font-weight:800!important;flex:0 0 42px!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;text-align:left!important;padding:9px 13px!important;min-height:44px!important;border-radius:12px!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button [data-testid="stIconMaterial"]{font-size:21px!important;color:#fff!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button p{font-size:14px!important;font-weight:600!important}
+"""
 _bg_path = Path(__file__).with_name("campus_login_bg.png")
 _bg64 = base64.b64encode(_bg_path.read_bytes()).decode("ascii") if _bg_path.exists() else ""
-_CSS = _CSS.replace("</style>", f'.login-hero {{ background-image:linear-gradient(180deg,rgba(5,18,43,.05),rgba(5,18,43,.76)),url(data:image/png;base64,{_bg64}); }}\n</style>')
+_CSS = _CSS.replace("</style>", f'.login-hero {{ background-image:linear-gradient(180deg,rgba(5,18,43,.05),rgba(5,18,43,.76)),url("data:image/png;base64,{_bg64}") !important; }}\n</style>')
 st.markdown(_CSS, unsafe_allow_html=True)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 DEPARTMENTS = ["Placement Office", "Academic Advisors", "IT Department"]
@@ -321,7 +331,8 @@ def get_user():
 def login_page():
     left, right = st.columns([1.12, 0.88], gap="large", vertical_alignment="center")
     with left:
-        st.markdown("""<div class="login-hero">
+        st.markdown(f"""<div class="login-hero">
+          <img class="login-bg-image" src="data:image/png;base64,{_bg64}" alt="University campus">
           <div class="login-eyebrow">CAMPUS APPOINTMENT AGENT</div>
           <div class="login-title">Your campus.<br>One connected place.</div>
           <div class="login-copy">Book appointments, connect with the right department and stay updated on every step of your campus support journey.</div>
@@ -380,7 +391,13 @@ def login_page():
                             st.error("That username is already registered. Please choose another.")
 
 def profile_page(u):
-    st.header("Profile")
+    back_col, title_col = st.columns([1, 5], vertical_alignment="center")
+    with back_col:
+        if st.button("← Home", key="profile_back_home"):
+            st.session_state.active_page = "Dashboard"
+            st.rerun()
+    with title_col:
+        st.header("Profile")
     if u["role"] == "student":
         st.write(f"**Name:** {u['full_name']}  \n**SRN:** {u['srn']}  \n**Gender:** {u['gender']}  \n**Course:** {u['course']}  \n**Year:** {u['study_year']}")
         with st.form("edit_student"):
@@ -960,7 +977,22 @@ def apply_interface_theme(dark_mode: bool):
         .quick-card-foot{background:rgba(10,20,40,.92)!important;color:#f4f7ff!important}
         .quick-card-foot span{color:#c5d7fa!important}
         hr{border-color:var(--line)!important}
-        </style>"""
+        
+.header-clearance{height:66px;margin-bottom:-66px;pointer-events:none}
+.profile-identity{display:flex;align-items:center;gap:10px;min-height:48px;white-space:nowrap}
+.profile-avatar{width:42px;height:42px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#4e7cff,#1745d5);color:#fff!important;font-size:17px;font-weight:800;box-shadow:0 4px 12px rgba(35,83,210,.25);flex:0 0 42px}
+.profile-copy{display:flex;flex-direction:column;line-height:1.15}
+.profile-copy strong{font-size:14px;color:var(--ink)!important;font-weight:800}
+.profile-copy small{font-size:12px;color:var(--muted)!important;margin-top:3px}
+[data-testid="stSidebar"] [data-testid="stButton"]{margin:4px 0}
+[data-testid="stSidebar"] [data-testid="stButton"] button{justify-content:flex-start;text-align:left;border:1px solid transparent!important;background:transparent!important;color:#fff!important;min-height:43px;padding:8px 13px!important;border-radius:12px!important;font-weight:600!important;box-shadow:none!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button:hover{background:rgba(255,255,255,.13)!important;border-color:rgba(255,255,255,.12)!important;transform:translateX(2px)}
+[data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:linear-gradient(90deg,#3977f6,#4e83f4)!important;border-color:rgba(255,255,255,.12)!important;box-shadow:0 7px 18px rgba(0,0,0,.16)!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button p{color:#fff!important}
+[data-testid="stPopover"]>button{min-width:38px!important;width:38px!important;height:42px!important;padding:0!important;border-radius:12px!important}
+@media(max-width:900px){.header-clearance{height:48px;margin-bottom:-48px}.profile-avatar{width:36px;height:36px;flex-basis:36px}}
+
+</style>"""
     else:
         css = """
         <style>
@@ -1032,22 +1064,44 @@ def main():
             (lab for lab in labels if lab.split("  ·")[0] == st.session_state.active_page),
             labels[0],
         )
-        selected = st.radio(
-            "Navigation", labels, index=labels.index(current_label),
-            label_visibility="collapsed",
-        )
-        # Profile is intentionally not a sidebar item; keep it active while its dropdown page is open.
-        if st.session_state.active_page != "Profile":
-            st.session_state.active_page = selected.split("  ·")[0]
+        nav_icons = {
+            "Dashboard": ":material/home:",
+            "Notifications": ":material/notifications:",
+            "Book appointment": ":material/calendar_month:",
+            "My appointments": ":material/layers:",
+            "Contact Chairperson": ":material/groups:",
+            "Student Directory": ":material/groups:",
+            "Schedule Appointment": ":material/event_available:",
+            "My Meetings": ":material/calendar_today:",
+            "Student Concerns": ":material/forum:",
+            "About": ":material/info:",
+        }
+        # Material Symbols icons match the clean outline style in the reference.
+        for item, display_label in zip(nav_items, labels):
+            active = st.session_state.active_page == item
+            icon = nav_icons.get(item, ":material/circle:")
+            if st.button(
+                display_label,
+                icon=icon,
+                key=f"side_nav_{u['id']}_{item.replace(' ', '_')}",
+                use_container_width=True,
+                type="primary" if active else "secondary",
+            ):
+                st.session_state.active_page = item
+                st.rerun()
         st.markdown(
             '<div class="sidebar-footer-note">Your campus. One connected place.</div>',
             unsafe_allow_html=True,
         )
 
-    # Global header: theme switch, notification shortcut and account dropdown.
+    # Global header: lowered to clear Streamlit's top toolbar.
     initials = "".join(part[0] for part in u["full_name"].split()[:2]).upper()
+    first_name = u["full_name"].split()[0]
     role_label = "Student" if u["role"] == "student" else (u.get("department") or "Staff")
-    h_spacer, h_theme, h_bell, h_profile = st.columns([7.2, 1.15, 1.0, 2.2], vertical_alignment="center")
+    st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
+    h_spacer, h_theme, h_bell, h_identity, h_menu = st.columns(
+        [7.0, 1.15, 0.75, 2.05, 0.45], vertical_alignment="center"
+    )
     with h_theme:
         st.toggle("☀️ / 🌙", key="app_dark_mode", help="Switch between light and dark appearance")
     apply_interface_theme(st.session_state.app_dark_mode)
@@ -1055,8 +1109,14 @@ def main():
         if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
             st.session_state.active_page = "Notifications"
             st.rerun()
-    with h_profile:
-        with st.popover(f"🔵 {initials}  {u['full_name'].split()[0]}  ▾", use_container_width=True):
+    with h_identity:
+        st.markdown(
+            f'<div class="profile-identity"><span class="profile-avatar">{initials}</span>'
+            f'<span class="profile-copy"><strong>{first_name}</strong><small>{role_label}</small></span></div>',
+            unsafe_allow_html=True,
+        )
+    with h_menu:
+        with st.popover("⌄", use_container_width=True):
             st.markdown(f"**{u['full_name']}**")
             st.caption(role_label)
             st.divider()
