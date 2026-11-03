@@ -867,82 +867,93 @@ def _dashboard_metrics(u):
 
 
 def _render_dashboard(u):
+    from html import escape
     row, unread = _dashboard_metrics(u)
-    first = u["full_name"].split()[0]
-    subtitle = "Your campus support overview" if u["role"] == "student" else f"{u.get('department') or 'Staff'} · Your campus workspace"
+    first = escape(u["full_name"].split()[0])
+    subtitle = "Your campus support overview" if u["role"] == "student" else f"{escape(u.get('department') or 'Staff')} · Your campus support overview"
+
     st.markdown(
-        f'<div class="dashboard-topline"><div><div class="dashboard-heading">Good to see you, {first}</div>'
-        f'<div class="dashboard-subtitle">{subtitle}</div></div></div>',
+        f'<div class="ref-welcome"><div><h1>Good to see you, {first}</h1>'
+        f'<p>{subtitle}</p></div><span class="welcome-spark">╱╱╱</span></div>',
         unsafe_allow_html=True,
     )
 
     metrics = [
-        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], "▣", "blue"),
-        ("Pending" if u["role"] == "student" else "Pending requests", row["pending"], "⌛", "amber"),
+        ("Upcoming" if u["role"] == "student" else "Today", row["upcoming"], "▦", "blue"),
+        ("Pending", row["pending"], "⌛", "amber"),
         ("Completed", row["completed"], "✓", "green"),
         ("Unread updates", unread, "♧", "violet"),
     ]
-    cols = st.columns(4, gap="medium")
+    cols = st.columns(4, gap="small")
     for col, (label, value, symbol, tone) in zip(cols, metrics):
         with col:
             st.markdown(
-                f'<div class="metric-tile"><div style="font-size:22px;margin-bottom:6px">{symbol}</div>'
-                f'<div class="metric-label">{label}</div><div class="metric-value">{value}</div></div>',
+                f'<div class="ref-metric {tone}"><div class="ref-metric-icon">{symbol}</div>'
+                f'<div class="ref-metric-copy"><span>{label}</span><strong>{value}</strong></div>'
+                f'<i></i></div>',
                 unsafe_allow_html=True,
             )
 
     st.write("")
-    left, right = st.columns([2.05, 1], gap="large")
+    left, right = st.columns([2.08, 1], gap="medium")
     notes = all_rows(
-        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5",
+        "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 3",
         (u["id"],),
     )
     with left:
-        st.markdown("## ♧  Notifications")
-        st.caption("Stay updated on your appointments and requests")
+        st.markdown(
+            '<div class="ref-section-title"><span class="ref-section-icon">♧</span><div>'
+            '<h2>Notifications</h2><p>Stay updated on your appointments and requests</p></div></div>',
+            unsafe_allow_html=True,
+        )
         if not notes:
-            st.info("You're all caught up. No notifications yet.")
+            st.markdown('<div class="ref-empty">You’re all caught up. No notifications yet.</div>', unsafe_allow_html=True)
         for n in notes:
+            title = escape(str(n.get("title") or "Update"))
+            message = escape(str(n.get("message") or ""))
+            created = escape(str(n.get("created_at") or ""))
+            lower = title.lower()
+            if "cancel" in lower or "reject" in lower:
+                tone, glyph = "red", "▧"
+            elif "resched" in lower or "pending" in lower:
+                tone, glyph = "amber", "◷"
+            elif "schedule" in lower or "confirm" in lower or "approved" in lower:
+                tone, glyph = "green", "▣"
+            else:
+                tone, glyph = "blue", "▣"
             is_unread = not n["is_read"]
-            c1, c2 = st.columns([5, 1.25], vertical_alignment="center")
+            c1, c2 = st.columns([5.3, 1.0], vertical_alignment="center")
             with c1:
                 st.markdown(
-                    f'<div class="notification-item {"unread" if is_unread else ""}">'
-                    f'<div class="notification-title">{"🔵 " if is_unread else ""}{n["title"]}</div>'
-                    f'<div class="notification-body">{n["message"]}</div>'
-                    f'<div class="notification-time">◷ &nbsp;{n["created_at"]}</div></div>',
+                    f'<div class="ref-notice {tone} {"is-unread" if is_unread else ""}">'
+                    f'<div class="ref-notice-icon">{glyph}</div><div class="ref-notice-content">'
+                    f'<div class="ref-notice-heading">{"<b class=ref-unread-dot></b>" if is_unread else ""}{title}</div>'
+                    f'<div class="ref-notice-message">{message}</div>'
+                    f'<div class="ref-notice-time">▦ &nbsp;{created}</div></div></div>',
                     unsafe_allow_html=True,
                 )
             with c2:
                 if is_unread and st.button("Mark as read", key=f"dash_mark_read_{u['id']}_{n['id']}"):
                     run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"], u["id"]))
                     st.rerun()
-        if len(notes) == 5:
-            st.caption("Showing your five latest updates. Open Notifications to view more.")
+
     with right:
-        art_path = Path(__file__).with_name("campus_dashboard_art.png")
+        art_name = "campus_dashboard_art_dark.png" if st.session_state.get("app_dark_mode") else "campus_dashboard_art.png"
+        art_path = Path(__file__).with_name(art_name)
         if art_path.exists():
-            import base64 as _b64
-            encoded = _b64.b64encode(art_path.read_bytes()).decode("ascii")
+            encoded = base64.b64encode(art_path.read_bytes()).decode("ascii")
             st.markdown(
-                '<div class="quick-card"><div class="quick-card-head"><h3>Quick overview</h3>'
-                '<p>A quick look at your campus activity</p></div>'
-                f'<img src="data:image/png;base64,{encoded}" alt="Campus building illustration">'
-                '<div class="quick-card-foot"><div style="font-size:28px">🎓</div>'
-                '<div><strong>Your campus, connected</strong>'
-                '<span>Appointments and support in one place.</span></div></div></div>',
+                '<div class="ref-quick-card"><div class="ref-quick-head">'
+                '<span class="ref-quick-icon">▱</span><div><h2>Quick overview</h2>'
+                '<p>A quick look at your campus activity</p></div></div>'
+                f'<img class="ref-campus-image" src="data:image/png;base64,{encoded}" alt="Campus building">'
+                '<div class="ref-quick-foot"><span class="ref-cap">◆</span><div>'
+                '<strong>Your campus, connected</strong><small>Appointments and support<br>in one place.</small>'
+                '</div><b>›</b></div></div>',
                 unsafe_allow_html=True,
             )
         else:
-            with st.container(border=True):
-                st.markdown("### Quick overview")
-                st.write("Your campus appointments and support updates are in one place.")
-        st.write("")
-        if u["role"] == "student":
-            st.metric("Upcoming appointments", row["upcoming"])
-        else:
-            st.metric("Pending student requests", row["pending"])
-            st.caption("Use the sidebar to manage meetings and student records.")
+            st.markdown('<div class="ref-quick-card"><h2>Quick overview</h2><p>Your campus, connected.</p></div>', unsafe_allow_html=True)
 
 
 def student_dashboard(u):
@@ -962,6 +973,10 @@ def apply_interface_theme(dark_mode: bool):
         :root{color-scheme:dark;--canvas:#0b1428;--surface:#111f37;--surface-2:#1a2b49;--ink:#f4f7ff;--muted:#bdc9df;--line:#2b4164;--brand:#78a0ff;--brand-strong:#a9c1ff;--brand-soft:#1c3157;--shadow:0 10px 28px rgba(0,0,0,.28)}
         [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:var(--canvas)!important;color:var(--ink)!important}
         [data-testid="stHeader"]{background:rgba(11,20,40,.94)!important}
+        [data-testid="stSidebar"]{background:linear-gradient(180deg,#1744bd 0%,#123a9e 58%,#102f80 100%)!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button{background:transparent!important;color:#fff!important;border-color:transparent!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:linear-gradient(90deg,#3977f6,#4e83f4)!important;color:#fff!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button p,[data-testid="stSidebar"] [data-testid="stButton"] button span,[data-testid="stSidebar"] [data-testid="stButton"] button svg{color:#fff!important;fill:#fff!important}
         h1,h2,h3,h4,h5,p,label,[data-testid="stMarkdownContainer"],[data-testid="stCaptionContainer"],[data-testid="stMetricLabel"],.dashboard-heading,.notification-title{color:var(--ink)!important}
         [data-testid="stCaptionContainer"],.dashboard-subtitle,.notification-body,.notification-time,.notification-meta{color:var(--muted)!important}
         [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stMetric"],[data-testid="stExpander"],.metric-tile,.notification-item,.notification-card,.quick-panel{background:var(--surface)!important;border-color:var(--line)!important;color:var(--ink)!important}
@@ -1030,9 +1045,142 @@ def apply_interface_theme(dark_mode: bool):
         input,textarea,[data-baseweb="select"] *{color:var(--ink)}
         .stButton>button,[data-testid="stFormSubmitButton"] button{background:#fff;border-color:var(--line);color:var(--ink)}
         .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#315deb;color:#fff}
+        /* Keep the sidebar royal blue in light mode: inactive links are transparent, never white cards. */
+        [data-testid="stSidebar"]{background:linear-gradient(180deg,#1744bd 0%,#123a9e 58%,#102f80 100%)!important}
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] *,
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] p{color:#fff!important}
+        [data-testid="stSidebar"] [data-testid="stButton"]{margin:5px 0!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button{
+            background:transparent!important;background-color:transparent!important;
+            color:#fff!important;-webkit-text-fill-color:#fff!important;
+            border:1px solid transparent!important;border-radius:13px!important;
+            box-shadow:none!important;min-height:45px!important;
+            justify-content:flex-start!important;text-align:left!important;
+            font-weight:650!important;padding:9px 14px!important
+        }
+        [data-testid="stSidebar"] [data-testid="stButton"] button p,
+        [data-testid="stSidebar"] [data-testid="stButton"] button span,
+        [data-testid="stSidebar"] [data-testid="stButton"] button svg{color:#fff!important;fill:#fff!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:hover{
+            background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.18)!important;
+            transform:translateX(2px)!important
+        }
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{
+            background:linear-gradient(90deg,#3977f6,#4e83f4)!important;
+            border-color:rgba(255,255,255,.18)!important;color:#fff!important;
+            box-shadow:0 7px 18px rgba(0,0,0,.16)!important
+        }
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] p,
+        [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] span{color:#fff!important}
+        [data-testid="stSidebar"] [data-testid="stButton"] button:focus:not(:active){outline:2px solid rgba(255,255,255,.55)!important}
+        [data-testid="stSidebar"] [data-testid="stDivider"]{border-color:rgba(255,255,255,.24)!important}
         </style>"""
     st.markdown(css, unsafe_allow_html=True)
 
+
+
+
+
+def apply_reference_dashboard_styles(dark_mode):
+    """Reference-matched dashboard styling shared by student and staff views."""
+    light_sidebar = Path(__file__).with_name("campus_sidebar_art_light.png")
+    dark_sidebar = Path(__file__).with_name("campus_sidebar_art_dark.png")
+    sidebar_path = dark_sidebar if dark_mode else light_sidebar
+    sidebar_bg = ""
+    if sidebar_path.exists():
+        sidebar_b64 = base64.b64encode(sidebar_path.read_bytes()).decode("ascii")
+        sidebar_bg = f'url("data:image/png;base64,{sidebar_b64}")'
+    css = """
+    <style>
+    .block-container{max-width:1700px;padding-top:1.15rem;padding-bottom:2rem}
+    .ref-welcome{display:flex;align-items:flex-start;gap:14px;margin:16px 0 22px}
+    .ref-welcome h1{font-size:clamp(30px,3vw,42px);font-weight:850;letter-spacing:-.05em;line-height:1.08;margin:0;color:var(--ink)!important}
+    .ref-welcome p{font-size:17px;margin:7px 0 0;color:var(--muted)!important}
+    .welcome-spark{color:#1760f5;font-size:27px;font-weight:900;letter-spacing:-8px;transform:rotate(-28deg);margin:0 0 0 2px}
+    .ref-metric{height:112px;position:relative;overflow:hidden;display:flex;align-items:center;gap:15px;padding:16px 18px;border-radius:19px;border:1px solid var(--line);background:linear-gradient(140deg,var(--surface),var(--surface-2));box-shadow:var(--shadow);isolation:isolate}
+    .ref-metric:after{content:"";position:absolute;right:-18px;bottom:-39px;width:132px;height:78px;border-radius:100% 0 0 0;transform:rotate(-7deg);z-index:-1;opacity:.8}
+    .ref-metric.blue:after{background:linear-gradient(135deg,#d8edff,#7fc4ff)}
+    .ref-metric.amber:after{background:linear-gradient(135deg,#fff0d8,#ffc47b)}
+    .ref-metric.green:after{background:linear-gradient(135deg,#d7f7e9,#8de2c3)}
+    .ref-metric.violet:after{background:linear-gradient(135deg,#e9e1ff,#b7a1ff)}
+    .ref-metric-icon{height:64px;width:64px;flex:0 0 64px;border-radius:17px;display:grid;place-items:center;font-size:31px;font-weight:800}
+    .ref-metric.blue .ref-metric-icon{background:#dceeff;color:#0758dc}
+    .ref-metric.amber .ref-metric-icon{background:#fff0df;color:#df8500}
+    .ref-metric.green .ref-metric-icon{background:#dcf5eb;color:#078b50}
+    .ref-metric.violet .ref-metric-icon{background:#eee8ff;color:#7046df}
+    .ref-metric-copy{display:flex;flex-direction:column;gap:3px;z-index:1}
+    .ref-metric-copy span{font-size:14px;font-weight:750;color:var(--ink)}
+    .ref-metric-copy strong{font-size:34px;line-height:1;font-weight:850;color:var(--ink)}
+    .ref-section-title{display:flex;align-items:center;gap:15px;margin:8px 0 20px}
+    .ref-section-icon{width:62px;height:62px;border-radius:17px;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center;font-size:32px}
+    .ref-section-title h2{font-size:28px;font-weight:850;letter-spacing:-.035em;color:var(--ink);margin:0}
+    .ref-section-title p{font-size:14px;color:var(--muted);margin:2px 0 0}
+    .ref-notice{min-height:130px;display:flex;align-items:center;gap:16px;padding:15px 18px;margin:7px 0 12px;border:1px solid;border-radius:17px;background:var(--surface);box-shadow:var(--shadow)}
+    .ref-notice.red{border-color:#ff9eae;background:linear-gradient(110deg,rgba(255,235,239,.75),var(--surface))}
+    .ref-notice.amber{border-color:#ffd17a;background:linear-gradient(110deg,rgba(255,246,226,.78),var(--surface))}
+    .ref-notice.green{border-color:#83dfbd;background:linear-gradient(110deg,rgba(228,250,240,.8),var(--surface))}
+    .ref-notice.blue{border-color:#9bc4ff}
+    .ref-notice-icon{width:66px;height:66px;flex:0 0 66px;border-radius:18px;display:grid;place-items:center;font-size:32px;font-weight:800}
+    .ref-notice.red .ref-notice-icon{background:#ffe5e9;color:#ed3434}
+    .ref-notice.amber .ref-notice-icon{background:#fff0d9;color:#e18a00}
+    .ref-notice.green .ref-notice-icon{background:#ddf6eb;color:#079253}
+    .ref-notice.blue .ref-notice-icon{background:#e0edff;color:#145ee8}
+    .ref-notice-content{min-width:0;flex:1}
+    .ref-notice-heading{font-size:17px;font-weight:850;line-height:1.25;color:var(--ink);margin-bottom:5px}
+    .ref-unread-dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:#ed3d35;margin-right:10px}
+    .ref-notice-message{font-size:13px;line-height:1.45;color:var(--ink)}
+    .ref-notice-time{font-size:12px;color:var(--muted);margin-top:9px}
+    .ref-empty{padding:22px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--muted)}
+    .ref-quick-card{overflow:hidden;border:1px solid #b7d0ff;border-radius:20px;background:linear-gradient(145deg,#f7faff,#dceaff);box-shadow:var(--shadow);padding:17px}
+    .ref-quick-head{display:flex;align-items:center;gap:13px;margin-bottom:13px}
+    .ref-quick-icon{width:58px;height:58px;flex:0 0 58px;border-radius:16px;background:#e0ecff;color:#1559dd;display:grid;place-items:center;font-size:32px}
+    .ref-quick-head h2{font-size:24px;font-weight:850;letter-spacing:-.04em;color:#0c1c4d;margin:0}
+    .ref-quick-head p{font-size:13px;color:#304b82;margin:2px 0 0}
+    .ref-campus-image{width:calc(100% + 34px);max-width:none;height:250px;object-fit:cover;display:block;margin:0 -17px}
+    .ref-quick-foot{display:flex;align-items:center;gap:12px;padding:13px 15px;margin-top:10px;border:1px solid #d1e0ff;border-radius:16px;background:rgba(255,255,255,.88);color:#10285e}
+    .ref-cap{width:52px;height:52px;flex:0 0 52px;border-radius:14px;background:#dceaff;color:#1559dd;display:grid;place-items:center;font-size:27px}
+    .ref-quick-foot div{flex:1}
+    .ref-quick-foot strong{display:block;font-size:15px}
+    .ref-quick-foot small{display:block;font-size:12px;line-height:1.35;color:#38517f}
+    .ref-quick-foot>b{font-size:28px;color:#1459e8}
+    .ref-notice+.stHorizontalBlock{margin-top:-1px}
+    [data-testid="stSidebar"]{background-color:#123a9e!important;background-image:linear-gradient(180deg,rgba(12,55,172,.08),rgba(5,37,127,.1)),SIDEBAR_IMAGE!important;background-position:center bottom!important;background-size:cover!important;background-repeat:no-repeat!important}
+    @media(max-width:950px){.ref-metric{padding:12px;gap:9px}.ref-metric-icon{width:48px;height:48px;flex-basis:48px}.ref-metric-copy strong{font-size:28px}.ref-section-title h2{font-size:23px}}
+    </style>
+    """
+    css = css.replace("SIDEBAR_IMAGE", sidebar_bg or "none")
+    if dark_mode:
+        css = css.replace(
+            "</style>",
+            """
+            .ref-metric{background:linear-gradient(145deg,#10213f,#172c50);border-color:#355381}
+            .ref-metric.blue:after{background:linear-gradient(135deg,#164b91,#277de1)}
+            .ref-metric.amber:after{background:linear-gradient(135deg,#76501f,#c17a2c)}
+            .ref-metric.green:after{background:linear-gradient(135deg,#145b4b,#1aa985)}
+            .ref-metric.violet:after{background:linear-gradient(135deg,#49377d,#7553d9)}
+            .ref-metric.blue .ref-metric-icon{background:#173f77;color:#75baff}
+            .ref-metric.amber .ref-metric-icon{background:#51402b;color:#ffb72d}
+            .ref-metric.green .ref-metric-icon{background:#174d46;color:#52e0b3}
+            .ref-metric.violet .ref-metric-icon{background:#3d3473;color:#c4aaff}
+            .ref-notice{background:linear-gradient(120deg,#15233d,#111f37)!important}
+            .ref-notice.red{border-color:#bd435f;background:linear-gradient(110deg,#2a1c32,#111f37)!important}
+            .ref-notice.amber{border-color:#bd852d;background:linear-gradient(110deg,#30291f,#111f37)!important}
+            .ref-notice.green{border-color:#279c83;background:linear-gradient(110deg,#15352f,#111f37)!important}
+            .ref-notice.red .ref-notice-icon{background:#4a2a3d;color:#ff7777}
+            .ref-notice.amber .ref-notice-icon{background:#4a3a27;color:#ffbd42}
+            .ref-notice.green .ref-notice-icon{background:#17483f;color:#5ce3b7}
+            .ref-notice.blue .ref-notice-icon{background:#1b3c6c;color:#81baff}
+            .ref-quick-card{border-color:#365d9b;background:linear-gradient(145deg,#10264a,#142f5c)}
+            .ref-quick-head h2{color:#f4f7ff}.ref-quick-head p{color:#c2d5f6}
+            .ref-quick-icon{background:#1d4178;color:#9ac3ff}
+            .ref-quick-foot{border-color:#365d9b;background:rgba(12,31,64,.9);color:#f4f7ff}
+            .ref-quick-foot small{color:#c6d8f8}.ref-cap{background:#1d4178;color:#9ac3ff}
+            </style>"""
+        )
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def main():
@@ -1129,6 +1277,7 @@ def main():
     with h_theme:
         st.toggle("☀️ / 🌙", key="app_dark_mode", help="Switch between light and dark appearance")
     apply_interface_theme(st.session_state.app_dark_mode)
+    apply_reference_dashboard_styles(st.session_state.app_dark_mode)
     with h_bell:
         if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
             st.session_state.active_page = "Notifications"
