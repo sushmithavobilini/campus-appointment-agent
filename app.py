@@ -72,6 +72,11 @@ def init_db():
       staff_notes TEXT NOT NULL DEFAULT '', queries_addressed TEXT NOT NULL DEFAULT '',
       resolution_status TEXT NOT NULL DEFAULT 'Not recorded', follow_up TEXT NOT NULL DEFAULT '',
       created_at TEXT,
+      booking_source TEXT NOT NULL DEFAULT 'staff',
+      reschedule_status TEXT NOT NULL DEFAULT 'None',
+      reschedule_date TEXT,
+      reschedule_time TEXT,
+      reschedule_reason TEXT NOT NULL DEFAULT '',
       CONSTRAINT unique_staff_slot UNIQUE(staff_id, appointment_date, appointment_time)
     );
     CREATE TABLE IF NOT EXISTS student_concerns(
@@ -99,6 +104,11 @@ def init_db():
             # Safe schema migration for existing PostgreSQL deployments.
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_chairperson BOOLEAN NOT NULL DEFAULT FALSE")
+            cur.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS booking_source TEXT NOT NULL DEFAULT 'staff'")
+            cur.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_status TEXT NOT NULL DEFAULT 'None'")
+            cur.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_date TEXT")
+            cur.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_time TEXT")
+            cur.execute("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_reason TEXT NOT NULL DEFAULT ''")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_users_active_role_name ON users(role,is_active,full_name)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_users_srn_active ON users(srn,is_active)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_appointments_staff_date ON appointments(staff_id,appointment_date,status)")
@@ -492,11 +502,12 @@ def floating_ai_widget(u):
                 st.session_state.floating_ai_messages.append({"role":"assistant","content":"Sorry, I could not process that request. Please try again shortly, or contact the relevant department."})
             st.rerun()
 
-@st.fragment(run_every="30s")
+@st.fragment(run_every="15s")
 def student_page(u):
     st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
     st.caption("Student dashboard")
-    notifications_tab, appointments_tab, chair_tab = st.tabs(["Notifications", "My appointments", "Contact Chairperson"])
+    notifications_tab, book_tab, appointments_tab, chair_tab = st.tabs(
+        ["Notifications", "Book appointment", "My appointments", "Contact Chairperson"])
     with notifications_tab:
         notes = unread_notifications(u["id"])
         if not notes:
@@ -509,6 +520,44 @@ def student_page(u):
                 if not n["is_read"] and st.button("Mark as read", key=f"read_{n['id']}"):
                     run("UPDATE notifications SET is_read=TRUE WHERE id=? AND user_id=?", (n["id"],u["id"]))
                     st.rerun()
+    with book_tab:
+        st.subheader("Book an appointment")
+        staff_members = all_rows("""SELECT id,full_name,department,room_no,block_name
+            FROM users WHERE role='staff' AND is_active=TRUE AND is_chairperson=FALSE
+            ORDER BY department,full_name""")
+        if not staff_members:
+            st.info("No staff members are currently available for booking.")
+        else:
+            staff_map = {f"{x['full_name']} — {x['department']}": x for x in staff_members}
+            # Keep availability controls outside a form so changing staff/date immediately reruns
+            # this fragment and recalculates free slots.
+            staff_label = st.selectbox("Department / staff member", list(staff_map), key=f"student_staff_{u['id']}")
+            chosen_staff = staff_map[staff_label]
+            chosen_day = st.date_input("Preferred date", min_value=datetime.now(CAMPUS_TZ).date(),
+                value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1), key=f"student_day_{u['id']}")
+            slots = free_slots(chosen_staff["id"], chosen_day.isoformat())
+            chosen_slot = st.selectbox("Available time", slots if slots else ["No slots available"],
+                key=f"student_slot_{u['id']}_{chosen_staff['id']}_{chosen_day.isoformat()}")
+            booking_reason = st.text_area("Reason for appointment", key=f"student_reason_{u['id']}")
+            book_submit = st.button("Submit booking request", type="primary", disabled=not slots,
+                key=f"student_book_submit_{u['id']}")
+            if book_submit:
+                if not booking_reason.strip():
+                    st.error("Please provide a reason for the appointment.")
+                else:
+                    try:
+                        run("""INSERT INTO appointments
+                            (student_id,staff_id,department,appointment_date,appointment_time,reason,status,created_at,booking_source)
+                            VALUES(?,?,?,?,?,?,'Pending',?,'student')""",
+                            (u["id"],chosen_staff["id"],chosen_staff["department"],chosen_day.isoformat(),
+                             chosen_slot,booking_reason.strip(),datetime.now(CAMPUS_TZ).isoformat()))
+                        notify_user(chosen_staff["id"], "New student appointment request",
+                            f"{u['full_name']} ({u['srn']}) requested an appointment on {chosen_day.isoformat()} at {chosen_slot}. Reason: {booking_reason.strip()}")
+                        st.success("Booking request sent. The staff member must confirm or reject it.")
+                        st.rerun()
+                    except psycopg.errors.UniqueViolation:
+                        st.error("That slot was just taken. Please select another time.")
+
     with appointments_tab:
         appts = all_rows("""SELECT a.*,s.full_name staff_name,s.room_no,s.block_name FROM appointments a
           JOIN users s ON s.id=a.staff_id WHERE a.student_id=? ORDER BY a.appointment_date,a.appointment_time""", (u["id"],))
@@ -523,6 +572,44 @@ def student_page(u):
                 if a["resolution_status"] != "Not recorded":
                     st.write(f"**Outcome:** {a['resolution_status']}")
                     if a["follow_up"]: st.write(f"**Follow-up:** {a['follow_up']}")
+                if a.get("booking_source") == "student" and a["status"] in ("Pending", "Confirmed"):
+                    if st.button("Cancel my booking", key=f"student_cancel_{a['id']}"):
+                        run("UPDATE appointments SET status='Cancelled' WHERE id=? AND student_id=? AND booking_source='student' AND status IN ('Pending','Confirmed')",
+                            (a["id"],u["id"]))
+                        notify_user(a["staff_id"], "Student cancelled appointment",
+                                    f"{u['full_name']} cancelled the appointment for {a['appointment_date']} at {a['appointment_time']}.")
+                        st.success("Your booking has been cancelled.")
+                        st.rerun()
+                if a.get("booking_source") == "staff" and a["status"] == "Scheduled":
+                    with st.expander("Request a reschedule"):
+                        with st.form(f"reschedule_request_{a['id']}"):
+                            new_day = st.date_input("Preferred new date",
+                                min_value=datetime.now(CAMPUS_TZ).date(),
+                                value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1),
+                                key=f"reschedule_day_{a['id']}")
+                            reschedule_slots = free_slots(a["staff_id"], new_day.isoformat())
+                            new_time = st.selectbox("Preferred new time",
+                                reschedule_slots if reschedule_slots else ["No slots available"],
+                                key=f"reschedule_time_{a['id']}")
+                            reschedule_reason = st.text_area("Reason for rescheduling", key=f"reschedule_reason_{a['id']}")
+                            request_submit = st.form_submit_button("Send reschedule request",
+                                disabled=not reschedule_slots)
+                        if request_submit:
+                            if not reschedule_reason.strip():
+                                st.error("Please provide a reason.")
+                            else:
+                                run("""UPDATE appointments SET reschedule_status='Requested',
+                                    reschedule_date=?,reschedule_time=?,reschedule_reason=?
+                                    WHERE id=? AND student_id=? AND booking_source='staff' AND status='Scheduled'""",
+                                    (new_day.isoformat(),new_time,reschedule_reason.strip(),a["id"],u["id"]))
+                                notify_user(a["staff_id"], "Reschedule request from student",
+                                    f"{u['full_name']} requested {new_day.isoformat()} at {new_time}. Reason: {reschedule_reason.strip()}")
+                                st.success("Reschedule request sent. The appointment remains unchanged until staff responds.")
+                                st.rerun()
+                if a.get("reschedule_status") == "Requested":
+                    st.info(f"Reschedule request awaiting staff: {a.get('reschedule_date')} at {a.get('reschedule_time')}.")
+                elif a.get("reschedule_status") == "Declined":
+                    st.warning("Your reschedule request was declined. The original appointment remains scheduled.")
     with chair_tab:
         st.write("Share an issue or query directly with the Chairperson.")
         with st.form("student_chairperson_concern"):
@@ -550,6 +637,7 @@ def student_page(u):
                     st.info("Chairperson response: " + c["chairperson_reply"])
 
 
+@st.fragment(run_every="15s")
 def staff_page(u):
     is_chair = bool(u.get("is_chairperson"))
     st.title(f"Welcome, {u['full_name'].split()[0]} 👋")
@@ -604,18 +692,21 @@ def staff_page(u):
         else:
             student_map = {f"{x['full_name']} — {x['srn']}":x for x in students}
             staff_map = {f"{x['full_name']} — {x['department']}":x for x in staff_members}
-            with st.form(f"schedule_student_{u['id']}"):
-                selected_student_label = st.selectbox("Select student", list(student_map))
-                selected_staff_label = st.selectbox("Staff member", list(staff_map),
-                    index=list(staff_map).index(next((k for k,v in staff_map.items() if v["id"]==u["id"]), list(staff_map)[0])))
-                selected_day = st.date_input("Appointment date", min_value=datetime.now(CAMPUS_TZ).date(),
-                    value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1))
-                selected_staff = staff_map[selected_staff_label]
-                slots = free_slots(selected_staff["id"], selected_day.isoformat())
-                selected_slot = st.selectbox("Available time", slots if slots else ["No slots available"])
-                reason = st.text_area("Meeting purpose")
-                submit_appointment = st.form_submit_button("Schedule appointment", type="primary",
-                    disabled=not slots)
+            # Availability widgets are outside a form so selecting a new staff member/date
+            # immediately recalculates slots. This section also refreshes every 15 seconds.
+            selected_student_label = st.selectbox("Select student", list(student_map), key=f"schedule_student_select_{u['id']}")
+            selected_staff_label = st.selectbox("Staff member", list(staff_map),
+                index=list(staff_map).index(next((k for k,v in staff_map.items() if v["id"]==u["id"]), list(staff_map)[0])),
+                key=f"schedule_staff_select_{u['id']}")
+            selected_day = st.date_input("Appointment date", min_value=datetime.now(CAMPUS_TZ).date(),
+                value=datetime.now(CAMPUS_TZ).date()+timedelta(days=1), key=f"schedule_day_{u['id']}")
+            selected_staff = staff_map[selected_staff_label]
+            slots = free_slots(selected_staff["id"], selected_day.isoformat())
+            selected_slot = st.selectbox("Available time", slots if slots else ["No slots available"],
+                key=f"schedule_slot_{u['id']}_{selected_staff['id']}_{selected_day.isoformat()}")
+            reason = st.text_area("Meeting purpose", key=f"schedule_reason_{u['id']}")
+            submit_appointment = st.button("Schedule appointment", type="primary",
+                disabled=not slots, key=f"schedule_submit_{u['id']}")
             if submit_appointment:
                 student = student_map[selected_student_label]
                 try:
@@ -668,7 +759,42 @@ def staff_page(u):
                 st.write(f"{a['course'] or ''} · {a['study_year'] or ''}")
                 st.write(f"Location: {u['room_no'] or 'TBC'}, {u['block_name'] or 'TBC'}")
                 st.write(f"Purpose: {a['reason']}")
-                if a["status"] not in ("Completed","Cancelled"):
+                if a.get("booking_source") == "student" and a["status"] == "Pending":
+                    st.warning("Student booking request — awaiting your decision.")
+                    c1, c2 = st.columns(2)
+                    if c1.button("Confirm booking", key=f"confirm_student_booking_{a['id']}"):
+                        run("UPDATE appointments SET status='Confirmed' WHERE id=? AND staff_id=? AND status='Pending' AND booking_source='student'",
+                            (a["id"],u["id"]))
+                        notify_user(a["student_id"], "Appointment confirmed",
+                                    f"Your appointment with {u['full_name']} on {a['appointment_date']} at {a['appointment_time']} is confirmed.")
+                        st.rerun()
+                    if c2.button("Reject booking", key=f"reject_student_booking_{a['id']}"):
+                        run("UPDATE appointments SET status='Rejected' WHERE id=? AND staff_id=? AND status='Pending' AND booking_source='student'",
+                            (a["id"],u["id"]))
+                        notify_user(a["student_id"], "Appointment request rejected",
+                                    f"Your appointment request for {a['appointment_date']} at {a['appointment_time']} was rejected. Please choose another slot.")
+                        st.rerun()
+                if a.get("booking_source") == "staff" and a.get("reschedule_status") == "Requested":
+                    st.warning(f"Reschedule requested: {a['reschedule_date']} at {a['reschedule_time']}. Reason: {a['reschedule_reason']}")
+                    r1, r2 = st.columns(2)
+                    if r1.button("Approve reschedule", key=f"approve_reschedule_{a['id']}"):
+                        try:
+                            run("""UPDATE appointments SET appointment_date=?,appointment_time=?,
+                                reschedule_status='Approved',reschedule_date=NULL,reschedule_time=NULL,reschedule_reason=''
+                                WHERE id=? AND staff_id=? AND reschedule_status='Requested'""",
+                                (a["reschedule_date"],a["reschedule_time"],a["id"],u["id"]))
+                            notify_user(a["student_id"], "Reschedule approved",
+                                f"Your appointment has been moved to {a['reschedule_date']} at {a['reschedule_time']}.")
+                            st.rerun()
+                        except psycopg.errors.UniqueViolation:
+                            st.error("That requested slot is no longer available. The original appointment is unchanged.")
+                    if r2.button("Decline reschedule", key=f"decline_reschedule_{a['id']}"):
+                        run("UPDATE appointments SET reschedule_status='Declined' WHERE id=? AND staff_id=? AND reschedule_status='Requested'",
+                            (a["id"],u["id"]))
+                        notify_user(a["student_id"], "Reschedule request declined",
+                            "Your reschedule request was declined. Your original appointment remains scheduled.")
+                        st.rerun()
+                if a["status"] not in ("Completed","Cancelled","Rejected"):
                     if st.button("Mark meeting completed",key=f"complete_{a['id']}"):
                         run("UPDATE appointments SET status='Completed' WHERE id=? AND staff_id=?",(a["id"],u["id"]))
                         st.rerun()
