@@ -607,6 +607,8 @@ def student_page(u, section="Book appointment"):
 
 
 def staff_page(u, section="My Meetings"):
+    # Determine chairperson access once for all staff-page sections.
+    is_chair = bool(u.get("is_chairperson", False))
     # Summary cards are reserved for the Dashboard only.
     st.title(section)
     if section == "Student Directory":
