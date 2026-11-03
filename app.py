@@ -1014,10 +1014,12 @@ def apply_interface_theme(dark_mode: bool):
 [data-testid="stSidebar"] [data-testid="stButton"] button:hover{background:rgba(255,255,255,.13)!important;border-color:rgba(255,255,255,.12)!important;transform:translateX(2px)}
 [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:linear-gradient(90deg,#3977f6,#4e83f4)!important;border-color:rgba(255,255,255,.12)!important;box-shadow:0 7px 18px rgba(0,0,0,.16)!important}
 [data-testid="stSidebar"] [data-testid="stButton"] button p{color:#fff!important}
-[data-testid="stPopover"]>button{min-width:38px!important;min-height:44px!important;padding:7px 13px!important;border-radius:14px!important;font-weight:750!important;white-space:nowrap!important}
-.profile-menu-heading{display:flex;align-items:center;gap:11px;padding:4px 2px 8px}
-.profile-menu-heading .profile-avatar{width:42px;height:42px;flex-basis:42px}
-@media(max-width:900px){.header-clearance{height:48px;margin-bottom:-48px}.profile-avatar{width:36px;height:36px;flex-basis:36px}}
+/* The complete profile identity is the popover trigger (not a tiny arrow beside it). */
+[data-testid="stPopover"]{width:100%}
+[data-testid="stPopover"]>button{width:100%!important;min-width:0!important;min-height:52px!important;height:auto!important;padding:7px 12px!important;border-radius:14px!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;white-space:normal!important;text-align:left!important;background:rgba(255,255,255,.72)!important;border:1px solid #d7e2f3!important;color:#10204b!important;box-shadow:0 4px 14px rgba(30,65,140,.08)!important}
+[data-testid="stPopover"]>button:hover{border-color:#6d96f5!important;background:#fff!important}
+[data-testid="stPopover"]>button p{font-size:13px!important;font-weight:700!important;color:#10204b!important;line-height:1.25!important;white-space:normal!important}
+[data-testid="stPopoverBody"]{min-width:230px!important}
 @media(max-width:900px){.header-clearance{height:48px;margin-bottom:-48px}.profile-avatar{width:36px;height:36px;flex-basis:36px}}
 
 </style>"""
@@ -1300,8 +1302,8 @@ def main():
     header_full_name = __import__("html").escape(str(u["full_name"]))
     header_subtitle = __import__("html").escape(role_label)
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
-    h_spacer, h_bell, h_profile = st.columns(
-        [8.4, 0.75, 2.9], vertical_alignment="center"
+    h_spacer, h_bell, h_identity = st.columns(
+        [8.15, 0.75, 2.5], vertical_alignment="center"
     )
     apply_interface_theme(False)
     apply_reference_dashboard_styles(False)
@@ -1309,16 +1311,13 @@ def main():
         if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
             st.session_state.active_page = "Notifications"
             st.rerun()
-    # The profile identity itself is the popover trigger. There is no separate
-    # chevron/dropdown control and clicking it never navigates automatically.
-    with h_profile:
-        with st.popover(f"{initials}  {first_name}  ⌄", use_container_width=True):
-            st.markdown(
-                f'<div class="profile-menu-heading"><span class="profile-avatar">{initials}</span>'
-                f'<span class="profile-copy"><strong>{header_full_name}</strong>'
-                f'<small>{header_subtitle}</small></span></div>',
-                unsafe_allow_html=True,
-            )
+    with h_identity:
+        # Make the entire identity control the popover trigger. There is no separate
+        # arrow button and clicking the identity never navigates directly to Profile.
+        profile_trigger_label = f"👤  {first_name}  ·  {role_label}  ⌄"
+        with st.popover(profile_trigger_label, use_container_width=True):
+            st.markdown(f"**{u['full_name']}**")
+            st.caption(role_label)
             st.divider()
             if st.button("👤  Profile", use_container_width=True, key="header_profile"):
                 st.session_state.active_page = "Profile"
