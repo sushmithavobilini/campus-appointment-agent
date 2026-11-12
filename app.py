@@ -261,6 +261,37 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_appointments_student_date ON appointments(student_id,appointment_date)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id,created_at DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_concerns_created ON student_concerns(created_at DESC)")
+
+            # One-time student-data reset requested by the app owner.
+            # This runs once per database, never on every app restart.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS app_migrations(
+                    migration_key TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL
+                )
+            """)
+            cur.execute("""
+                INSERT INTO app_migrations(migration_key, applied_at)
+                VALUES('reset_student_records_2026_11_12', %s)
+                ON CONFLICT(migration_key) DO NOTHING
+                RETURNING migration_key
+            """, (datetime.now(CAMPUS_TZ).isoformat(),))
+            reset_marker = cur.fetchone()
+            if reset_marker:
+                cur.execute("DELETE FROM appointments WHERE student_id IN (SELECT id FROM users WHERE role='student')")
+                cur.execute("DELETE FROM student_concerns WHERE student_id IN (SELECT id FROM users WHERE role='student')")
+                cur.execute("DELETE FROM notifications WHERE user_id IN (SELECT id FROM users WHERE role='student')")
+                cur.execute("""
+                    DELETE FROM notifications
+                    WHERE title IN (
+                        'New student appointment request',
+                        'Student cancelled appointment',
+                        'Reschedule request from student',
+                        'New student concern'
+                    )
+                """)
+                cur.execute("DELETE FROM users WHERE role='student'")
+
             # Migrate the previous prototype's seeded demo accounts without deleting appointment history.
             cur.execute("""UPDATE users SET is_active=FALSE, username=CONCAT('disabled_student_', id),
                            password_hash=%s, full_name='Deleted Student', srn=NULL, gender=NULL,
