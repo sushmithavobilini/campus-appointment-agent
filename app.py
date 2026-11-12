@@ -914,7 +914,8 @@ def _render_dashboard(u):
     subtitle = "Your campus support overview"
 
     st.markdown(
-        f'<div class="ref-welcome"><div><h1>Good to see you, {full_name}</h1>'
+        f'<div class="ref-welcome campus-hero"><div><div class="hero-eyebrow">CAMPUS APPOINTMENT AGENT</div>'
+        f'<h1>Good to see you, {full_name}</h1>'
         f'<p>{subtitle}</p></div><span class="welcome-spark" aria-hidden="true">'
         '<i></i><i></i><i></i></span></div>',
         unsafe_allow_html=True,
@@ -1364,6 +1365,50 @@ def main():
     )
     apply_interface_theme(False)
     apply_reference_dashboard_styles(False)
+
+    st.markdown("""
+    <style>
+    :root{--canvas:#F7F9FC;--surface:#FFFFFF;--surface-2:#F3F6FA;--ink:#17263D;--muted:#68778B;--line:#E0E7F0;--brand:#285C91;--brand-strong:#173B63;--brand-soft:#EAF1F8;--shadow:0 5px 18px rgba(19,42,70,.045)}
+    [data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stMainBlockContainer"]{background:#F7F9FC!important;color:#17263D!important}
+    [data-testid="stHeader"]{background:rgba(247,249,252,.96)!important}
+    .block-container{max-width:1580px!important;padding:1.5rem 2.1rem 2.6rem!important}
+    [data-testid="stSidebar"]{background:#101C2F!important;border-right:1px solid #26364D!important;background-image:none!important;width:280px!important}
+    [data-testid="stSidebar"]>div:first-child{padding:1.5rem 1rem 1rem!important}
+    [data-testid="stSidebar"] *{color:#F4F7FB!important}
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,[data-testid="stSidebar"] [data-testid="stCaptionContainer"]{color:#B9C5D5!important}
+    .brand-lockup{padding:10px 5px 22px!important;gap:12px!important}
+    .brand-mark{width:42px!important;height:42px!important;border-radius:12px!important;background:#243A57!important;color:#FFFFFF!important;box-shadow:none!important}
+    .brand-name{font-size:21px!important;color:#FFFFFF!important}.brand-sub{color:#B9C5D5!important}
+    [data-testid="stSidebar"] [data-testid="stButton"] button{min-height:42px!important;border-radius:9px!important;padding:8px 11px!important;background:transparent!important;border:1px solid transparent!important;box-shadow:none!important;color:#DCE5EF!important}
+    [data-testid="stSidebar"] [data-testid="stButton"] button:hover{background:#1B2B42!important;transform:none!important}
+    [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:#263D5B!important;border-color:#354D6B!important;color:#FFFFFF!important}
+    [data-testid="stSidebar"] [data-testid="stButton"] button p,[data-testid="stSidebar"] [data-testid="stButton"] button span,[data-testid="stSidebar"] [data-testid="stButton"] button svg{color:#FFFFFF!important;fill:#FFFFFF!important}
+    .ref-welcome.campus-hero{display:flex!important;align-items:flex-end!important;justify-content:space-between!important;min-height:150px!important;margin:0 0 20px!important;padding:26px 30px!important;border-radius:0 0 17px 17px!important;background:linear-gradient(112deg,#192E4D 0%,#285778 100%)!important;box-shadow:none!important}
+    .campus-hero .hero-eyebrow{font-size:10px;letter-spacing:.15em;font-weight:800;color:#D4E5F4;margin-bottom:16px}
+    .campus-hero h1{font-size:clamp(28px,2.7vw,36px)!important;color:#FFFFFF!important;margin:0!important;letter-spacing:-.035em!important}
+    .campus-hero p{font-size:14px!important;color:#E4EDF6!important;margin:8px 0 0!important}.campus-hero .welcome-spark{display:none!important}
+    .ref-metric{min-height:104px!important;height:104px!important;border-radius:13px!important;border:1px solid #E1E8F0!important;background:#F5F8FC!important;box-shadow:none!important;padding:14px 16px!important}
+    .ref-metric:after{opacity:.35!important}.ref-metric-icon{width:48px!important;height:48px!important;flex-basis:48px!important;border-radius:12px!important;font-size:25px!important}
+    .ref-metric-icon svg{width:27px!important;height:27px!important}.ref-metric-copy span{font-size:12px!important;color:#63758B!important;font-weight:650!important}.ref-metric-copy strong{font-size:29px!important;color:#193B5D!important}
+    .ref-section-title{margin:8px 0 14px!important;gap:12px!important}.ref-section-icon{width:48px!important;height:48px!important;border-radius:12px!important;font-size:25px!important}
+    .ref-section-title h2{font-size:22px!important;color:#1B2D43!important}.ref-section-title p{font-size:12px!important;color:#718096!important}
+    div[class*="st-key-ref_notice_row_"]{border-radius:13px!important;box-shadow:none!important;padding:3px 8px!important}
+    .ref-notice-inline{min-height:90px!important;gap:13px!important}.ref-notice-inline .ref-notice-icon{width:48px!important;height:48px!important;flex-basis:48px!important;border-radius:12px!important;font-size:24px!important}
+    .ref-notice-heading{font-size:14px!important;color:#1D3048!important}.ref-notice-message{font-size:12px!important;color:#465A70!important}.ref-notice-time{font-size:10px!important;color:#7B899A!important}
+    .ref-quick-card{border:1px solid #E0E7F0!important;border-radius:14px!important;background:#FFFFFF!important;box-shadow:none!important;padding:14px!important}
+    .ref-quick-head h2{font-size:20px!important;color:#1D3048!important}.ref-quick-head p{font-size:12px!important;color:#718096!important}
+    .ref-quick-icon{width:46px!important;height:46px!important;flex-basis:46px!important;border-radius:11px!important}
+    .ref-campus-image{height:175px!important;border-radius:10px!important;object-fit:cover!important}
+    .ref-quick-foot{padding:10px 12px!important;margin-top:9px!important;border-radius:11px!important;background:#F4F7FB!important;border-color:#E3EAF2!important;color:#243B56!important}
+    .ref-cap{width:42px!important;height:42px!important;flex-basis:42px!important}
+    [data-testid="stPopover"]>button{border:1px solid #DCE4ED!important;border-radius:10px!important;background:#FFFFFF!important;color:#203A57!important;min-height:42px!important;box-shadow:none!important}
+    [data-testid="stPopover"]>button:hover{border-color:#9FB3C8!important;background:#F8FAFC!important}
+    .stButton>button,[data-testid="stFormSubmitButton"] button{border-radius:9px!important;border-color:#D8E1EB!important;box-shadow:none!important}
+    .stButton>button[kind="primary"],[data-testid="stFormSubmitButton"] button[kind="primary"]{background:#244F78!important;border-color:#244F78!important;color:#FFFFFF!important}
+    [data-testid="stVerticalBlockBorderWrapper"]{border-radius:13px!important;box-shadow:none!important}
+    @media(max-width:900px){.block-container{padding:1rem .85rem 2rem!important}.ref-welcome.campus-hero{padding:20px!important;min-height:130px!important}.ref-metric{padding:11px!important}}
+    </style>
+    """, unsafe_allow_html=True)
     with h_bell:
         if st.button(f"🔔 {unread if unread else ''}", key="header_notifications", help="Open notifications"):
             st.session_state.active_page = "Notifications"

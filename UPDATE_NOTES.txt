@@ -1,0 +1,14 @@
+Campus Agent – CampusMate-inspired visual refresh
+
+Files:
+- app.py: updated application with the visual refresh and concern progress tracker
+- requirements.txt: existing project dependencies
+- PNG files: existing campus/login/sidebar artwork
+
+Deployment:
+1. Back up your Neon database before deployment.
+2. Replace the existing project files with the files in this ZIP.
+3. Keep your Streamlit Secrets (especially DATABASE_URL) unchanged.
+4. Deploy/reboot the Streamlit app.
+
+The app code passed Python syntax validation. This package has not been tested against the live Neon database or deployed Streamlit app.
