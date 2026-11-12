@@ -241,14 +241,6 @@ def init_db():
       is_read BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS concern_updates(
-      id BIGSERIAL PRIMARY KEY,
-      concern_id BIGINT NOT NULL REFERENCES student_concerns(id) ON DELETE CASCADE,
-      updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-      status TEXT NOT NULL,
-      update_note TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
-    );
     """
     with db() as conn:
         with conn.cursor() as cur:
@@ -269,27 +261,6 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_appointments_student_date ON appointments(student_id,appointment_date)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id,created_at DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_concerns_created ON student_concerns(created_at DESC)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_concern_updates_history ON concern_updates(concern_id,created_at)")
-            cur.execute("""
-                INSERT INTO concern_updates(concern_id,updated_by,status,update_note,created_at)
-                SELECT c.id,NULL,'Submitted','Concern submitted by student',c.created_at
-                FROM student_concerns c
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM concern_updates h WHERE h.concern_id=c.id
-                )
-            """)
-            cur.execute("""
-                INSERT INTO concern_updates(concern_id,updated_by,status,update_note,created_at)
-                SELECT c.id,NULL,c.status,
-                       COALESCE(NULLIF(c.chairperson_reply,''),'Existing concern status recorded'),
-                       c.updated_at
-                FROM student_concerns c
-                WHERE (c.status <> 'Submitted' OR COALESCE(c.chairperson_reply,'') <> '')
-                  AND NOT EXISTS (
-                    SELECT 1 FROM concern_updates h
-                    WHERE h.concern_id=c.id AND h.created_at=c.updated_at
-                )
-            """)
             # Migrate the previous prototype's seeded demo accounts without deleting appointment history.
             cur.execute("""UPDATE users SET is_active=FALSE, username=CONCAT('disabled_student_', id),
                            password_hash=%s, full_name='Deleted Student', srn=NULL, gender=NULL,
@@ -619,13 +590,9 @@ def student_page(u, section="Book appointment"):
                 st.error("Please enter both a subject and a description.")
             else:
                 chair = all_rows("SELECT id FROM users WHERE role='staff' AND is_chairperson=TRUE AND is_active=TRUE LIMIT 1")
-                concern_now = datetime.now(CAMPUS_TZ).isoformat()
-                concern_id = run("""INSERT INTO student_concerns(student_id,subject,message,status,created_at,updated_at)
+                run("""INSERT INTO student_concerns(student_id,subject,message,status,created_at,updated_at)
                        VALUES(?,?,?,'Submitted',?,?)""",
-                    (u["id"],subject.strip(),message.strip(),concern_now,concern_now))
-                run("""INSERT INTO concern_updates(concern_id,updated_by,status,update_note,created_at)
-                       VALUES(?,?,'Submitted',?,?)""",
-                    (concern_id,u["id"],"Concern submitted by student",concern_now))
+                    (u["id"],subject.strip(),message.strip(),datetime.now(CAMPUS_TZ).isoformat(),datetime.now(CAMPUS_TZ).isoformat()))
                 if chair:
                     notify_user(chair[0]["id"], "New student concern",
                                 f"{u['full_name']} ({u['srn']}) submitted: {subject.strip()}. Please review the Chairperson dashboard.")
@@ -635,20 +602,8 @@ def student_page(u, section="Book appointment"):
             with st.container(border=True):
                 st.markdown(f"**{c['subject']}** · {c['status']}")
                 st.write(c["message"])
-                st.caption(f"Last updated: {c['updated_at']}")
                 if c["chairperson_reply"]:
-                    st.info("Latest Chairperson update: " + c["chairperson_reply"])
-                history = all_rows("""SELECT h.status,h.update_note,h.created_at,u.full_name
-                    FROM concern_updates h LEFT JOIN users u ON u.id=h.updated_by
-                    WHERE h.concern_id=? ORDER BY h.created_at ASC,h.id ASC""", (c["id"],))
-                if history:
-                    with st.expander("View progress history", expanded=True):
-                        for item in history:
-                            who = item["full_name"] or "Campus Agent"
-                            st.markdown(f"**{item['status']}** · {item['created_at']}")
-                            st.write(item["update_note"])
-                            st.caption(f"Updated by: {who}")
-                            st.divider()
+                    st.info("Chairperson response: " + c["chairperson_reply"])
 
 
 def staff_page(u, section="My Meetings"):
@@ -739,27 +694,15 @@ def staff_page(u, section="My Meetings"):
                 with st.expander(f"{c['subject']} · {c['student_name']} ({c['srn']}) · {c['status']}"):
                     st.write(f"**Course:** {c['course']} · {c['study_year']}")
                     st.write(c["message"])
-                    st.caption(f"Current status: {c['status']}")
-                    progress_note = st.text_area(
-                        "Progress update / action taken",
-                        placeholder="Explain what was reviewed, action taken, or what happens next...",
-                        key=f"chair_progress_note_{c['id']}"
-                    )
-                    status = st.selectbox("Update status",["Submitted","In Progress","Resolved"],
-                        index=["Submitted","In Progress","Resolved"].index(c["status"]),
-                        key=f"chair_status_{c['id']}")
-                    if st.button("Post update to student",key=f"save_concern_{c['id']}",
-                                 type="primary", disabled=not progress_note.strip()):
-                        update_time = datetime.now(CAMPUS_TZ).isoformat()
+                    reply = st.text_area("Response",value=c["chairperson_reply"] or "",key=f"chair_reply_{c['id']}")
+                    status = st.selectbox("Status",["Submitted","In Progress","Resolved"],
+                        index=["Submitted","In Progress","Resolved"].index(c["status"]),key=f"chair_status_{c['id']}")
+                    if st.button("Save response",key=f"save_concern_{c['id']}"):
                         run("UPDATE student_concerns SET chairperson_reply=?,status=?,updated_at=? WHERE id=?",
-                            (progress_note.strip(),status,update_time,c["id"]))
-                        run("""INSERT INTO concern_updates(concern_id,updated_by,status,update_note,created_at)
-                               VALUES(?,?,?,?,?)""",
-                            (c["id"],u["id"],status,progress_note.strip(),update_time))
+                            (reply,status,datetime.now(CAMPUS_TZ).isoformat(),c["id"]))
                         notify_user(c["student_id"],"Chairperson updated your concern",
-                                    f"Your concern '{c['subject']}' is now {status}. Update: {progress_note.strip()}")
-                        st.success("Progress update posted. The student has been notified.")
-                        st.rerun()
+                                    f"Your concern '{c['subject']}' is now {status}. {reply}")
+                        st.success("Response saved and student notified."); st.rerun()
 
     elif section == "My Meetings":
         rows = all_rows("""SELECT a.*,u.full_name student_name,u.srn,u.course,u.study_year
@@ -1071,12 +1014,7 @@ def apply_interface_theme(dark_mode: bool):
 [data-testid="stSidebar"] [data-testid="stButton"] button:hover{background:rgba(255,255,255,.13)!important;border-color:rgba(255,255,255,.12)!important;transform:translateX(2px)}
 [data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"]{background:linear-gradient(90deg,#3977f6,#4e83f4)!important;border-color:rgba(255,255,255,.12)!important;box-shadow:0 7px 18px rgba(0,0,0,.16)!important}
 [data-testid="stSidebar"] [data-testid="stButton"] button p{color:#fff!important}
-/* The complete profile identity is the popover trigger (not a tiny arrow beside it). */
-[data-testid="stPopover"]{width:100%}
-[data-testid="stPopover"]>button{width:100%!important;min-width:0!important;min-height:52px!important;height:auto!important;padding:7px 12px!important;border-radius:14px!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;white-space:normal!important;text-align:left!important;background:rgba(255,255,255,.72)!important;border:1px solid #d7e2f3!important;color:#10204b!important;box-shadow:0 4px 14px rgba(30,65,140,.08)!important}
-[data-testid="stPopover"]>button:hover{border-color:#6d96f5!important;background:#fff!important}
-[data-testid="stPopover"]>button p{font-size:13px!important;font-weight:700!important;color:#10204b!important;line-height:1.25!important;white-space:normal!important}
-[data-testid="stPopoverBody"]{min-width:230px!important}
+[data-testid="stPopover"]>button{min-width:38px!important;width:38px!important;height:42px!important;padding:0!important;border-radius:12px!important}
 @media(max-width:900px){.header-clearance{height:48px;margin-bottom:-48px}.profile-avatar{width:36px;height:36px;flex-basis:36px}}
 
 </style>"""
@@ -1360,7 +1298,7 @@ def main():
     header_subtitle = __import__("html").escape(role_label)
     st.markdown('<div class="header-clearance"></div>', unsafe_allow_html=True)
     h_spacer, h_bell, h_identity = st.columns(
-        [8.15, 0.75, 2.5], vertical_alignment="center"
+        [7.8, 0.75, 2.75], vertical_alignment="center"
     )
     apply_interface_theme(False)
     apply_reference_dashboard_styles(False)
@@ -1369,19 +1307,25 @@ def main():
             st.session_state.active_page = "Notifications"
             st.rerun()
     with h_identity:
-        # Make the entire identity control the popover trigger. There is no separate
-        # arrow button and clicking the identity never navigates directly to Profile.
-        profile_trigger_label = f"👤  {first_name}  ·  {role_label}  ⌄"
-        with st.popover(profile_trigger_label, use_container_width=True):
-            st.markdown(f"**{u['full_name']}**")
-            st.caption(role_label)
-            st.divider()
-            if st.button("👤  Profile", use_container_width=True, key="header_profile"):
-                st.session_state.active_page = "Profile"
-                st.rerun()
-            if st.button("↪  Sign out", use_container_width=True, key="header_signout"):
-                st.session_state.clear()
-                st.rerun()
+        # One real Streamlit button is the entire profile trigger. Clicking anywhere
+        # on the identity toggles a normal in-flow menu (no popover/arrow hit target).
+        if "profile_menu_open" not in st.session_state:
+            st.session_state.profile_menu_open = False
+        profile_label = f"👤  {u['full_name']}  ·  {role_label}   ▾"
+        if st.button(profile_label, key="header_profile_trigger", use_container_width=True):
+            st.session_state.profile_menu_open = not st.session_state.profile_menu_open
+            st.rerun()
+        if st.session_state.get("profile_menu_open", False):
+            with st.container(border=True):
+                st.markdown(f"**{u['full_name']}**")
+                st.caption(role_label)
+                if st.button("Profile", key="header_profile_option", use_container_width=True):
+                    st.session_state.profile_menu_open = False
+                    st.session_state.active_page = "Profile"
+                    st.rerun()
+                if st.button("Sign out", key="header_signout_option", use_container_width=True):
+                    st.session_state.clear()
+                    st.rerun()
 
     page = st.session_state.active_page
     if page == "Profile":
